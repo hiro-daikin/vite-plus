@@ -1,0 +1,226 @@
+name: Native Binary Size
+
+permissions: {}
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.cargo/**'
+      - '.github/actions/clone/**'
+      - '.github/actions/setup-xwin/**'
+      - '.github/workflows/vp-binary-size.yml'
+      - 'crates/**'
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - 'rust-toolchain.toml'
+
+concurrency:
+  group: native-binary-size-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  base:
+    name: Build base artifacts
+    runs-on: namespace-profile-linux-x64-default
+    permissions:
+      contents: read
+    outputs:
+      vp_raw_size: ${{ steps.size.outputs.vp_raw_size }}
+      vp_gzip_size: ${{ steps.size.outputs.vp_gzip_size }}
+      napi_raw_size: ${{ steps.size.outputs.napi_raw_size }}
+      napi_gzip_size: ${{ steps.size.outputs.napi_gzip_size }}
+      trampoline_raw_size: ${{ steps.size.outputs.trampoline_raw_size }}
+      trampoline_gzip_size: ${{ steps.size.outputs.trampoline_gzip_size }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/clone
+
+      - uses: ./.github/actions/setup-xwin
+        with:
+          save-cache: false
+          cache-key: native-binary-size-base
+
+      - name: Build Linux artifacts
+        run: |
+          cargo build --locked --release -p vite_global_cli
+          cargo build --locked --release -p vite-plus-cli --features rolldown
+
+      - name: Build Windows trampoline
+        run: cargo xwin build --locked --release --target x86_64-pc-windows-msvc -p vite_trampoline
+        env:
+          XWIN_ACCEPT_LICENSE: '1'
+
+      - name: Measure artifacts
+        id: size
+        run: |
+          set -euo pipefail
+          measure() {
+            local name=$1
+            local artifact=$2
+            echo "${name}_raw_size=$(stat --format=%s "$artifact")" >> "$GITHUB_OUTPUT"
+            echo "${name}_gzip_size=$(gzip -9 --stdout "$artifact" | wc --bytes | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          }
+          measure vp target/release/vp
+          measure napi target/release/libvite_plus_cli.so
+          measure trampoline target/x86_64-pc-windows-msvc/release/vp-shim.exe
+
+  head:
+    name: Build PR artifacts
+    runs-on: namespace-profile-linux-x64-default
+    permissions:
+      contents: read
+    outputs:
+      vp_raw_size: ${{ steps.size.outputs.vp_raw_size }}
+      vp_gzip_size: ${{ steps.size.outputs.vp_gzip_size }}
+      napi_raw_size: ${{ steps.size.outputs.napi_raw_size }}
+      napi_gzip_size: ${{ steps.size.outputs.napi_gzip_size }}
+      trampoline_raw_size: ${{ steps.size.outputs.trampoline_raw_size }}
+      trampoline_gzip_size: ${{ steps.size.outputs.trampoline_gzip_size }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/clone
+
+      - uses: ./.github/actions/setup-xwin
+        with:
+          save-cache: false
+          cache-key: native-binary-size-head
+
+      - name: Build Linux artifacts
+        run: |
+          cargo build --locked --release -p vite_global_cli
+          cargo build --locked --release -p vite-plus-cli --features rolldown
+
+      - name: Build Windows trampoline
+        run: cargo xwin build --locked --release --target x86_64-pc-windows-msvc -p vite_trampoline
+        env:
+          XWIN_ACCEPT_LICENSE: '1'
+
+      - name: Measure artifacts
+        id: size
+        run: |
+          set -euo pipefail
+          measure() {
+            local name=$1
+            local artifact=$2
+            echo "${name}_raw_size=$(stat --format=%s "$artifact")" >> "$GITHUB_OUTPUT"
+            echo "${name}_gzip_size=$(gzip -9 --stdout "$artifact" | wc --bytes | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          }
+          measure vp target/release/vp
+          measure napi target/release/libvite_plus_cli.so
+          measure trampoline target/x86_64-pc-windows-msvc/release/vp-shim.exe
+
+  comment:
+    name: Report binary size
+    needs: [base, head]
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Comment size comparison
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          BASE_VP_RAW_SIZE: ${{ needs.base.outputs.vp_raw_size }}
+          BASE_VP_GZIP_SIZE: ${{ needs.base.outputs.vp_gzip_size }}
+          HEAD_VP_RAW_SIZE: ${{ needs.head.outputs.vp_raw_size }}
+          HEAD_VP_GZIP_SIZE: ${{ needs.head.outputs.vp_gzip_size }}
+          BASE_NAPI_RAW_SIZE: ${{ needs.base.outputs.napi_raw_size }}
+          BASE_NAPI_GZIP_SIZE: ${{ needs.base.outputs.napi_gzip_size }}
+          HEAD_NAPI_RAW_SIZE: ${{ needs.head.outputs.napi_raw_size }}
+          HEAD_NAPI_GZIP_SIZE: ${{ needs.head.outputs.napi_gzip_size }}
+          BASE_TRAMPOLINE_RAW_SIZE: ${{ needs.base.outputs.trampoline_raw_size }}
+          BASE_TRAMPOLINE_GZIP_SIZE: ${{ needs.base.outputs.trampoline_gzip_size }}
+          HEAD_TRAMPOLINE_RAW_SIZE: ${{ needs.head.outputs.trampoline_raw_size }}
+          HEAD_TRAMPOLINE_GZIP_SIZE: ${{ needs.head.outputs.trampoline_gzip_size }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        with:
+          script: |
+            const marker = '<!-- vp-binary-size -->';
+            const artifacts = [
+              {
+                name: '`vp` (Linux x64)',
+                baseRaw: Number(process.env.BASE_VP_RAW_SIZE),
+                baseGzip: Number(process.env.BASE_VP_GZIP_SIZE),
+                headRaw: Number(process.env.HEAD_VP_RAW_SIZE),
+                headGzip: Number(process.env.HEAD_VP_GZIP_SIZE),
+              },
+              {
+                name: 'NAPI (Linux x64)',
+                baseRaw: Number(process.env.BASE_NAPI_RAW_SIZE),
+                baseGzip: Number(process.env.BASE_NAPI_GZIP_SIZE),
+                headRaw: Number(process.env.HEAD_NAPI_RAW_SIZE),
+                headGzip: Number(process.env.HEAD_NAPI_GZIP_SIZE),
+              },
+              {
+                name: 'Trampoline (Windows x64)',
+                baseRaw: Number(process.env.BASE_TRAMPOLINE_RAW_SIZE),
+                baseGzip: Number(process.env.BASE_TRAMPOLINE_GZIP_SIZE),
+                headRaw: Number(process.env.HEAD_TRAMPOLINE_RAW_SIZE),
+                headGzip: Number(process.env.HEAD_TRAMPOLINE_GZIP_SIZE),
+              },
+            ];
+
+            const formatSize = (bytes) =>
+              `${bytes.toLocaleString('en-US')} B (${(bytes / 1024 / 1024).toFixed(2)} MiB)`;
+            const formatDelta = (base, head) => {
+              const delta = head - base;
+              const percent = base === 0 ? 0 : (delta / base) * 100;
+              const sign = delta > 0 ? '+' : '';
+              return `${sign}${delta.toLocaleString('en-US')} B (${sign}${percent.toFixed(2)}%)`;
+            };
+
+            const shortSha = process.env.HEAD_SHA.slice(0, 7);
+            const rows = artifacts.flatMap((artifact) => [
+              `| ${artifact.name} | Binary | ${formatSize(artifact.baseRaw)} | ${formatSize(artifact.headRaw)} | ${formatDelta(artifact.baseRaw, artifact.headRaw)} |`,
+              `| ${artifact.name} | gzip -9 | ${formatSize(artifact.baseGzip)} | ${formatSize(artifact.headGzip)} | ${formatDelta(artifact.baseGzip, artifact.headGzip)} |`,
+            ]);
+            const body = [
+              marker,
+              '',
+              `### Native binary sizes (\`${shortSha}\`)`,
+              '',
+              'Release builds for the shipped Linux x64 CLI/NAPI artifacts and Windows x64 trampoline.',
+              '',
+              '| Artifact | Format | Base | PR | Change |',
+              '| --- | --- | ---: | ---: | ---: |',
+              ...rows,
+            ].join('\n');
+
+            await core.summary.addRaw(body.replace(marker, '')).write();
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find((comment) => comment.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
