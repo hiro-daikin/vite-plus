@@ -32,6 +32,9 @@ tempfile = { workspace = true }
 toml = { workspace = true }
 which = { workspace = true }
 
+[target.'cfg(windows)'.dev-dependencies]
+junction = { workspace = true }
+
 [lints]
 workspace = true
 

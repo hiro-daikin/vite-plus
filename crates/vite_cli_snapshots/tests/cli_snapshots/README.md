@@ -52,7 +52,9 @@ cargo test -p vite_cli_snapshots -- <filter>      # if vp is already built
 Trial names are `<fixture>::<case>` (plus `::<flavor>` for multi-flavor
 cases). Prerequisites: the global flavor needs `cargo build -p
 vite_global_cli` (the `just` recipe does it); the local flavor needs `node`
-and a built `packages/cli/dist` (`pnpm build`).
+and a built `packages/cli/dist` (`pnpm build`); the harness fails fast when
+`dist` is older than `src`, so a forgotten rebuild never silently tests
+stale local-CLI code.
 
 Environment overrides, mainly for CI:
 

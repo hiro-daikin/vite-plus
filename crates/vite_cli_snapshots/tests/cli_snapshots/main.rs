@@ -433,14 +433,9 @@ impl CaseHome {
         let vp_home = home.join(".vite-plus");
         std::fs::create_dir_all(&vp_home).unwrap();
         std::fs::create_dir_all(root.join("npm-global/lib")).unwrap();
+        // Best-effort: if linking fails, the case downloads the runtime.
         if seed_runtime && let Some(seed) = flavor::js_runtime_seed_dir() {
-            let link = vp_home.join("js_runtime");
-            #[cfg(unix)]
-            std::os::unix::fs::symlink(&seed, &link).unwrap();
-            // Best-effort on Windows: without symlink privileges the case
-            // falls back to downloading the runtime itself.
-            #[cfg(windows)]
-            let _ = std::os::windows::fs::symlink_dir(&seed, &link);
+            flavor::link_dir(&seed, &vp_home.join("js_runtime"));
         }
         Self { home }
     }
@@ -788,6 +783,7 @@ fn run_case(
                     (home_str.as_str(), "<home>"),
                     (repo_str.as_str(), "<repo>"),
                 ],
+                !step.formatted_snapshot(),
             );
             timeout_error = Some(format!(
                 "step `{}` timed out after {timeout:?}; partial output:\n{redacted}",
@@ -810,6 +806,7 @@ fn run_case(
                     (home_str.as_str(), "<home>"),
                     (repo_str.as_str(), "<repo>"),
                 ],
+                !step.formatted_snapshot(),
             );
             doc.push_str(&redacted);
         }

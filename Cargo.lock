@@ -8527,6 +8527,7 @@ dependencies = [
  "cp_r",
  "ctrlc",
  "dunce",
+ "junction",
  "libtest-mimic",
  "pty_terminal_test",
  "pty_terminal_test_client",

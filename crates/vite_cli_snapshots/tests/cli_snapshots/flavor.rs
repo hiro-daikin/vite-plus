@@ -96,8 +96,9 @@ fn global_vp_path() -> Result<PathBuf, String> {
 /// overrides the default `<repo>/packages/cli/bin` (useful when the built
 /// `dist/` lives in another checkout or a CI artifact directory).
 fn local_cli_bin_dir() -> Result<PathBuf, String> {
-    let bin_dir = std::env::var_os("VP_SNAP_LOCAL_CLI_BIN_DIR")
-        .map_or_else(|| repo_root().join("packages/cli/bin"), PathBuf::from);
+    let overridden = std::env::var_os("VP_SNAP_LOCAL_CLI_BIN_DIR");
+    let bin_dir =
+        overridden.as_ref().map_or_else(|| repo_root().join("packages/cli/bin"), PathBuf::from);
     let dist_entry = bin_dir.parent().map(|p| p.join("dist/bin.js"));
     if !dist_entry.as_deref().is_some_and(Path::is_file) {
         return Err(format!(
@@ -106,7 +107,38 @@ fn local_cli_bin_dir() -> Result<PathBuf, String> {
             dist_entry.map_or_else(String::new, |p| p.display().to_string()),
         ));
     }
+    // A stale dist silently tests old code; fail fast when sources are newer
+    // (the legacy harness did the same for the global binary via mtimes).
+    // Skipped in CI, where dist is always freshly built, and under the
+    // override, which points at another checkout on purpose.
+    if overridden.is_none() && std::env::var_os("GITHUB_ACTIONS").is_none() {
+        let pkg_dir = bin_dir.parent().unwrap();
+        if let (Some(src), Some(dist)) =
+            (newest_mtime(&pkg_dir.join("src")), newest_mtime(&pkg_dir.join("dist")))
+            && src > dist
+        {
+            return Err("packages/cli/dist is older than packages/cli/src; run `pnpm build`, \
+                 or set VP_SNAP_SKIP_FLAVORS=local to skip local-flavor cases"
+                .to_owned());
+        }
+    }
     Ok(bin_dir)
+}
+
+fn newest_mtime(dir: &Path) -> Option<std::time::SystemTime> {
+    let mut newest = None;
+    let entries = std::fs::read_dir(dir).ok()?;
+    for entry in entries.flatten() {
+        let Ok(meta) = entry.metadata() else { continue };
+        let candidate =
+            if meta.is_dir() { newest_mtime(&entry.path()) } else { meta.modified().ok() };
+        if let Some(time) = candidate
+            && newest.is_none_or(|n| time > n)
+        {
+            newest = Some(time);
+        }
+    }
+    newest
 }
 
 /// Resolves the `vpt` helper binary. The runtime env var wins: nextest
@@ -173,14 +205,16 @@ fn install_tool(bin_dir: &Path, name: &str, target: &Path) -> Result<(), String>
     }
 }
 
-/// Best-effort directory link (symlink on Unix, `symlink_dir` on Windows,
-/// where it may require privileges; on failure, resolution falls back to
-/// whatever the fixture vendors itself).
+/// Best-effort directory link. On Windows, directory symlinks may require
+/// privileges, so a junction (which never does) is the fallback; only if
+/// both fail does resolution fall back to whatever the fixture vendors.
 pub fn link_dir(target: &Path, link: &Path) {
     #[cfg(unix)]
     let _ = std::os::unix::fs::symlink(target, link);
     #[cfg(windows)]
-    let _ = std::os::windows::fs::symlink_dir(target, link);
+    if std::os::windows::fs::symlink_dir(target, link).is_err() {
+        let _ = junction::create(target, link);
+    }
 }
 
 fn compose_path_env(bin_dir: &Path, node_dir: &Path) -> OsString {

@@ -47,7 +47,7 @@ static NODE_TRACE_WARNING_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     clippy::disallowed_types,
     reason = "String mutation required by regex replace and cow_replace APIs"
 )]
-fn redact_string(s: &mut String, redactions: &[(&str, &str)]) {
+fn redact_string(s: &mut String, redactions: &[(&str, &str)], normalize_separators: bool) {
     use cow_utils::CowUtils as _;
     for (from, to) in redactions {
         if let Cow::Owned(replaced) = s.as_str().cow_replace(from, to) {
@@ -59,10 +59,9 @@ fn redact_string(s: &mut String, redactions: &[(&str, &str)]) {
     // absolute-path redaction pair ever matches. Debug-formatted paths escape
     // separators (`\\`); collapse those BEFORE converting so they cannot
     // become `//` (collapsing afterwards would also mangle `https://` URLs).
-    // NOTE: a `formatted-snapshot` fixture running on Windows would have its
-    // literal escape renderings (`\x1b[...`) rewritten by this; none exists
-    // today, and the legacy harness made the same tradeoff.
-    if cfg!(windows) {
+    // Skipped for formatted-snapshot captures, whose literal escape
+    // renderings (`\x1b[...`) must survive byte for byte.
+    if cfg!(windows) && normalize_separators {
         while s.contains("\\\\") {
             if let Cow::Owned(replaced) = s.as_str().cow_replace("\\\\", "\\") {
                 *s = replaced;
@@ -97,6 +96,17 @@ fn path_variants(path: &str, label: &'static str) -> Vec<(String, &'static str)>
     if stripped_escaped != stripped && !variants.iter().any(|(v, _)| *v == stripped_escaped) {
         variants.insert(1, (stripped_escaped, label));
     }
+    // Windows children also print forward-slash forms of absolute paths
+    // (file:// URLs, JS stack frames); the separator-normalization pass runs
+    // after redaction, so those need their own variants.
+    let slashed = path.cow_replace('\\', "/").into_owned();
+    if slashed != path && !variants.iter().any(|(v, _)| *v == slashed) {
+        variants.push((slashed, label));
+    }
+    let stripped_slashed = stripped.cow_replace('\\', "/").into_owned();
+    if stripped_slashed != stripped && !variants.iter().any(|(v, _)| *v == stripped_slashed) {
+        variants.push((stripped_slashed, label));
+    }
     variants
 }
 
@@ -107,7 +117,11 @@ fn path_variants(path: &str, label: &'static str) -> Vec<(String, &'static str)>
     clippy::disallowed_types,
     reason = "String required by regex replace_all and cow_replace APIs"
 )]
-pub fn redact_output(mut output: String, paths: &[(&str, &'static str)]) -> String {
+pub fn redact_output(
+    mut output: String,
+    paths: &[(&str, &'static str)],
+    normalize_separators: bool,
+) -> String {
     // ConPTY repaints rows padded to the full grid width with explicit
     // spaces when a second console client attaches to the terminal. Trailing
     // blanks are never meaningful in a rendered grid, so trim every row on
@@ -127,7 +141,7 @@ pub fn redact_output(mut output: String, paths: &[(&str, &'static str)]) -> Stri
     }
     let borrowed: Vec<(&str, &str)> =
         redactions.iter().map(|(from, to)| (from.as_str(), *to)).collect();
-    redact_string(&mut output, &borrowed);
+    redact_string(&mut output, &borrowed, normalize_separators);
 
     // Redact UUIDs to "<uuid>"
     output = UUID_RE.replace_all(&output, "<uuid>").into_owned();
