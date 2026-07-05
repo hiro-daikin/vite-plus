@@ -1074,7 +1074,7 @@ jobs:
         run: |
           VP_SNAP_GLOBAL_VP="$HOME/.vite-plus/bin/vp" \
           VP_SNAP_JS_RUNTIME_DIR="$HOME/.vite-plus/js_runtime" \
-          cargo test -p vite_cli_snapshots --test cli_snapshots
+          cargo test -p vite_cli_snapshots
         env:
           RUST_BACKTRACE: '1'
 

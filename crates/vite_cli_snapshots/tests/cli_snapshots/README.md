@@ -46,7 +46,7 @@ just snapshot-test                    # build vp, run everything
 just snapshot-test <substring>        # filter by trial name
 UPDATE_SNAPSHOTS=1 just snapshot-test # accept snapshot changes
 pnpm snapshot-test                    # same, via pnpm
-cargo test -p vite_cli_snapshots --test cli_snapshots -- <filter>  # if vp is already built
+cargo test -p vite_cli_snapshots -- <filter>      # if vp is already built
 ```
 
 Trial names are `<fixture>::<case>` (plus `::<flavor>` for multi-flavor
@@ -108,8 +108,9 @@ is identical on every platform:
 `vpt rm`, `vpt cp`, `vpt chmod`, `vpt grep-file`, `vpt json-edit`,
 `vpt pipe-stdin <data> -- <argv>`, plus task payloads for `vp run` tests:
 `vpt print`, `vpt print-color`, `vpt print-env`, `vpt print-cwd`,
-`vpt check-tty`, `vpt read-stdin`, `vpt exit <code>`, `vpt exit-on-ctrlc`,
-`vpt barrier`.
+`vpt print-native-path` (prints OS-native separators, for redaction
+self-tests), `vpt check-tty`, `vpt read-stdin`, `vpt exit <code>`,
+`vpt exit-on-ctrlc`, `vpt barrier`.
 
 ## Interactive cases
 

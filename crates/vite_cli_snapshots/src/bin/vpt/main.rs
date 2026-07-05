@@ -25,6 +25,7 @@ mod print_color;
 mod print_cwd;
 mod print_env;
 mod print_file;
+mod print_native_path;
 mod probe;
 mod read_stdin;
 mod replace_file_content;
@@ -38,7 +39,7 @@ fn main() {
     if args.len() < 2 {
         eprintln!("Usage: vpt <subcommand> [args...]");
         eprintln!(
-            "Subcommands: barrier, check-tty, chmod, cp, exit, exit-on-ctrlc, grep-file, json-edit, list-dir, mkdir, pipe-stdin, print, print-color, print-cwd, print-env, print-file, probe, read-stdin, replace-file-content, rm, stat-file, touch-file, write-file"
+            "Subcommands: barrier, check-tty, chmod, cp, exit, exit-on-ctrlc, grep-file, json-edit, list-dir, mkdir, pipe-stdin, print, print-color, print-cwd, print-env, print-file, print-native-path, probe, read-stdin, replace-file-content, rm, stat-file, touch-file, write-file"
         );
         std::process::exit(1);
     }
@@ -69,6 +70,10 @@ fn main() {
         "print-cwd" => print_cwd::run(),
         "print-env" => print_env::run(&args[2..]),
         "print-file" => print_file::run(&args[2..]),
+        "print-native-path" => {
+            print_native_path::run(&args[2..]);
+            Ok(())
+        }
         "probe" => probe::run(),
         "read-stdin" => read_stdin::run(),
         "replace-file-content" => replace_file_content::run(&args[2..]),

@@ -86,7 +86,7 @@ test:
 # `UPDATE_SNAPSHOTS=1 just snapshot-test`.
 snapshot-test *args='':
   cargo build -p vite_global_cli
-  cargo test -p vite_cli_snapshots --test cli_snapshots -- {{args}}
+  cargo test -p vite_cli_snapshots -- {{args}}
 
 # Single source of truth for clippy, used by CI too. The `-A` flags allow
 # new toolchain lints that fire in upstream rolldown crates without a `[lints]` table.
