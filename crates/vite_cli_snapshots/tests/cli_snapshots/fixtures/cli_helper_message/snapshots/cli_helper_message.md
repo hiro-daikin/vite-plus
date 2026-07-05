@@ -1,4 +1,11 @@
-> vp -h # show help message
+# cli_helper_message
+
+## `vp -h`
+
+show help message
+
+```
+VITE+ - The Unified Toolchain for the Web
 
 Usage: vp [COMMAND]
 
@@ -52,27 +59,41 @@ Documentation: https://viteplus.dev/guide/
 Options:
   -V, --version  Print version
   -h, --help     Print help
+```
 
-> vp -V # show version
-vp v<semver>
+## `vp -V`
+
+show version
+
+```
+VITE+ - The Unified Toolchain for the Web
+
+vp <version>
 
 Local vite-plus:
-  vite-plus  v<semver>
+  vite-plus  Not found
 
 Tools:
-  vite             v<semver>
-  rolldown         v<semver>
-  vitest           v<semver>
-  oxfmt            v<semver>
-  oxlint           v<semver>
-  oxlint-tsgolint  v<semver>
-  tsdown           v<semver>
+  vite             Not found
+  rolldown         Not found
+  vitest           Not found
+  oxfmt            Not found
+  oxlint           Not found
+  oxlint-tsgolint  Not found
+  tsdown           Not found
 
 Environment:
   Package manager  Not found
-  Node.js          v<semver>
+  Node.js          <version>
+```
 
-> vp install -h # show install help message
+## `vp install -h`
+
+show install help message
+
+```
+VITE+ - The Unified Toolchain for the Web
+
 Usage: vp install [OPTIONS] [PACKAGES]... [-- <PASS_THROUGH_ARGS>...]
 
 Install all dependencies, or add packages if package names are provided
@@ -109,9 +130,15 @@ Options:
   -h, --help                   Print help
 
 Documentation: https://viteplus.dev/guide/install
+```
 
+## `vp add -h`
 
-> vp add -h # show add help message
+show add help message
+
+```
+VITE+ - The Unified Toolchain for the Web
+
 Usage: vp add [OPTIONS] <PACKAGES>... [-- <PASS_THROUGH_ARGS>...]
 
 Add packages to dependencies
@@ -138,9 +165,15 @@ Options:
   -h, --help                          Print help
 
 Documentation: https://viteplus.dev/guide/install
+```
 
+## `vp remove -h`
 
-> vp remove -h # show remove help message
+show remove help message
+
+```
+VITE+ - The Unified Toolchain for the Web
+
 Usage: vp remove [OPTIONS] <PACKAGES>... [-- <PASS_THROUGH_ARGS>...]
 
 Remove packages from dependencies
@@ -161,9 +194,15 @@ Options:
   -h, --help            Print help
 
 Documentation: https://viteplus.dev/guide/install
+```
 
+## `vp update -h`
 
-> vp update -h # show update help message
+show update help message
+
+```
+VITE+ - The Unified Toolchain for the Web
+
 Usage: vp update [OPTIONS] [PACKAGES]... [-- <PASS_THROUGH_ARGS>...]
 
 Update packages to their latest versions
@@ -190,9 +229,15 @@ Options:
   -h, --help                   Print help
 
 Documentation: https://viteplus.dev/guide/install
+```
 
+## `vp link -h`
 
-> vp link -h # show link help message
+show link help message
+
+```
+VITE+ - The Unified Toolchain for the Web
+
 Usage: vp link [PACKAGE|DIR] [ARGS]...
 
 Link packages for local development
@@ -205,9 +250,15 @@ Options:
   -h, --help  Print help
 
 Documentation: https://viteplus.dev/guide/install
+```
 
+## `vp unlink -h`
 
-> vp unlink -h # show unlink help message
+show unlink help message
+
+```
+VITE+ - The Unified Toolchain for the Web
+
 Usage: vp unlink [OPTIONS] [PACKAGE|DIR] [ARGS]...
 
 Unlink packages
@@ -221,9 +272,15 @@ Options:
   -h, --help       Print help
 
 Documentation: https://viteplus.dev/guide/install
+```
 
+## `vp dedupe -h`
 
-> vp dedupe -h # show dedupe help message
+show dedupe help message
+
+```
+VITE+ - The Unified Toolchain for the Web
+
 Usage: vp dedupe [OPTIONS] [-- <PASS_THROUGH_ARGS>...]
 
 Deduplicate dependencies
@@ -236,9 +293,15 @@ Options:
   -h, --help  Print help
 
 Documentation: https://viteplus.dev/guide/install
+```
 
+## `vp outdated -h`
 
-> vp outdated -h # show outdated help message
+show outdated help message
+
+```
+VITE+ - The Unified Toolchain for the Web
+
 Usage: vp outdated [OPTIONS] [PACKAGES]... [-- <PASS_THROUGH_ARGS>...]
 
 Check for outdated packages
@@ -263,9 +326,15 @@ Options:
   -h, --help                   Print help
 
 Documentation: https://viteplus.dev/guide/install
+```
 
+## `vp why -h`
 
-> vp why -h # show why help message
+show why help message
+
+```
+VITE+ - The Unified Toolchain for the Web
+
 Usage: vp why [OPTIONS] <PACKAGES>... [-- <PASS_THROUGH_ARGS>...]
 
 Show why a package is installed
@@ -290,9 +359,15 @@ Options:
   -h, --help               Print help
 
 Documentation: https://viteplus.dev/guide/install
+```
 
+## `vp info -h`
 
-> vp info -h # show info help message
+show info help message
+
+```
+VITE+ - The Unified Toolchain for the Web
+
 Usage: vp info [OPTIONS] <PACKAGE> [FIELD] [-- <PASS_THROUGH_ARGS>...]
 
 View package information from the registry
@@ -307,9 +382,15 @@ Options:
   -h, --help  Print help
 
 Documentation: https://viteplus.dev/guide/install
+```
 
+## `vp pm -h`
 
-> vp pm -h # show pm help message
+show pm help message
+
+```
+VITE+ - The Unified Toolchain for the Web
+
 Usage: vp pm <COMMAND>
 
 Forward a command to the package manager
@@ -341,9 +422,15 @@ Options:
   -h, --help  Print help
 
 Documentation: https://viteplus.dev/guide/install
+```
 
+## `vp env`
 
-> vp env # show env help message
+show env help message
+
+```
+VITE+ - The Unified Toolchain for the Web
+
 Usage: vp env [COMMAND]
 
 Manage Node.js versions
@@ -401,15 +488,21 @@ Related Commands:
   vp list -g [package]          # List global packages
 
 Documentation: https://viteplus.dev/guide/env
+```
 
+## `vp upgrade -h`
 
-> vp upgrade -h # show upgrade help message
+show upgrade help message
+
+```
+VITE+ - The Unified Toolchain for the Web
+
 Usage: vp upgrade [OPTIONS] [VERSION]
 
 Update vp itself to the latest version
 
 Arguments:
-  [VERSION]  Target version (e.g., "0.2.0"). Defaults to latest
+  [VERSION]  Target version (e.g., "<version>"). Defaults to latest
 
 Options:
   --tag <TAG>            npm dist-tag to install (default: "latest", also: "alpha") [default: latest]
@@ -421,4 +514,4 @@ Options:
   -h, --help             Print help
 
 Documentation: https://viteplus.dev/guide/upgrade
-
+```
