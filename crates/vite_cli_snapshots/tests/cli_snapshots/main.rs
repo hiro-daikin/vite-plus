@@ -653,7 +653,6 @@ fn run_case(
     for step in &case.steps {
         let argv = step.argv();
         assert!(!argv.is_empty(), "step argv must not be empty");
-        let program = runtime.resolve_program(&argv[0], &case_path)?;
 
         // Most steps add no env of their own; borrow the case env then.
         let step_env_override;
@@ -667,6 +666,10 @@ fn run_case(
             step_env_override = env;
             &step_env_override
         };
+        // Resolution honors a per-step PATH override, so steps testing shims
+        // or custom prefixes run exactly the tool the child would see.
+        let step_path = step_env.get("PATH").cloned().unwrap_or_else(|| case_path.clone());
+        let program = runtime.resolve_program(&argv[0], &step_path)?;
         let step_cwd = stage.join(step.cwd().unwrap_or(case.cwd.as_str()));
         let timeout = step.timeout();
 
@@ -827,15 +830,29 @@ fn run_case(
         }
     }
 
-    // Cleanup steps: best-effort, never snapshotted.
+    // Cleanup steps: best-effort, never snapshotted. Per-step envs apply
+    // here too: cleanup often depends on the same PATH/prefix overrides as
+    // the step it tears down.
     for step in &case.after {
         let argv = step.argv();
         assert!(!argv.is_empty(), "after-step argv must not be empty");
-        if let Ok(program) = runtime.resolve_program(&argv[0], &case_path) {
+        let after_env_override;
+        let after_env: &BTreeMap<String, OsString> = if step.envs().is_empty() {
+            &case_env
+        } else {
+            let mut env = case_env.clone();
+            for (k, v) in step.envs() {
+                env.insert(k.clone(), v.into());
+            }
+            after_env_override = env;
+            &after_env_override
+        };
+        let after_path = after_env.get("PATH").cloned().unwrap_or_else(|| case_path.clone());
+        if let Ok(program) = runtime.resolve_program(&argv[0], &after_path) {
             let _ = std::process::Command::new(program)
                 .args(&argv[1..])
                 .env_clear()
-                .envs(&case_env)
+                .envs(after_env)
                 .current_dir(stage.join(step.cwd().unwrap_or(case.cwd.as_str())))
                 .stdin(std::process::Stdio::null())
                 .output();
@@ -966,5 +983,9 @@ fn main() {
         }
     }
 
-    libtest_mimic::run(&args, tests).exit();
+    let conclusion = libtest_mimic::run(&args, tests);
+    // exit() never returns, so the staged run tree must be dropped first or
+    // every run would leave its full tempdir behind.
+    drop(tmp_dir);
+    conclusion.exit();
 }

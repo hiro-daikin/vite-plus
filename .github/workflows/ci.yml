@@ -44,7 +44,10 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      code-changed: ${{ steps.filter.outputs.code }}
+      # snapshots is OR-ed in because the PTY harness stores its assertions
+      # as .md files (fixtures/**/snapshots/*.md), which the code filter's
+      # markdown exclusion would otherwise classify as docs-only.
+      code-changed: ${{ steps.filter.outputs.code == 'true' || steps.filter.outputs.snapshots == 'true' }}
     steps:
       - uses: taiki-e/checkout-action@7d1e50e93dc4fb3bba58f85018fadf77898aee8b # v1.4.2
       - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
@@ -58,6 +61,8 @@ jobs:
               - '!.github/workflows/deploy-docs-preview.yml'
               - '!.github/workflows/deploy-docs.yml'
               - '!netlify.toml'
+            snapshots:
+              - 'crates/vite_cli_snapshots/**'
 
   docs-fmt:
     name: Docs format check

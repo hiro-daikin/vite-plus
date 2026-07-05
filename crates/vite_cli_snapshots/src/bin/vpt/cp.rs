@@ -13,7 +13,13 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         }
         copy_dir_recursive(src, dst)?;
     } else {
-        std::fs::copy(src, dst)?;
+        // `cp file existing-dir` copies INTO the directory, like real cp.
+        let target = if dst.is_dir() {
+            dst.join(src.file_name().ok_or("source has no file name")?)
+        } else {
+            dst.to_path_buf()
+        };
+        std::fs::copy(src, target)?;
     }
     Ok(())
 }

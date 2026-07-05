@@ -66,6 +66,20 @@ rm -f ignores missing targets
 ```
 ```
 
+## `vpt cp created-by-touch.txt notes`
+
+cp into an existing directory, like real cp
+
+```
+```
+
+## `vpt list-dir notes`
+
+```
+created-by-touch.txt
+hello.txt
+```
+
 ## `vpt list-dir notes/hello.txt`
 
 list-dir on a file prints the path, like ls
