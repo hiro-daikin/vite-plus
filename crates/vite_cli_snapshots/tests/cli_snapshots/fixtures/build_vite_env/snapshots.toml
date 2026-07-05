@@ -1,7 +1,6 @@
 [[case]]
 name = "build_vite_env"
 vp = "local"
-skip-platforms = ["windows"]
 steps = [
   { argv = ["vp", "run", "build"], envs = [["VITE_MY_VAR", "1"]] },
   { argv = ["vp", "run", "build"], comment = "should hit cache", envs = [["VITE_MY_VAR", "1"]] },
