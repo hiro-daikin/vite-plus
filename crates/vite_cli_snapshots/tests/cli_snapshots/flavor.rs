@@ -34,9 +34,10 @@ impl Flavor {
 /// Everything the runner needs to spawn commands under one flavor.
 pub struct FlavorRuntime {
     pub bin_dir: PathBuf,
-    pub node_dir: PathBuf,
     /// `VITE_GLOBAL_CLI_JS_SCRIPTS_DIR` value for the global flavor.
     pub js_scripts_dir: Option<PathBuf>,
+    /// Baseline `PATH` (bin dir, node, system tail); node and the other real
+    /// tools resolve through the per-case PATH derived from this.
     pub path_env: OsString,
 }
 
@@ -268,15 +269,21 @@ pub fn provision(flavor: Flavor, run_root: &Path) -> Result<FlavorRuntime, Strin
     install_tool(&bin_dir, "vpt", &vpt_path()?)?;
 
     let path_env = compose_path_env(&bin_dir, &node_dir);
-    Ok(FlavorRuntime { bin_dir, node_dir, js_scripts_dir, path_env })
+    Ok(FlavorRuntime { bin_dir, js_scripts_dir, path_env })
 }
 
 impl FlavorRuntime {
     /// Resolves a step's `argv[0]` to an absolute path. Only the vp family,
     /// `vpt`, and an allow-list of real tools may run as steps; everything
     /// else belongs behind a `vpt` subcommand so fixtures stay
-    /// platform-identical.
-    pub fn resolve_program(&self, program: &str) -> Result<PathBuf, String> {
+    /// platform-identical. Real tools resolve through the CASE's `PATH`
+    /// (which leads with `$VP_HOME/bin`), so shims a case creates via
+    /// `vp env setup` or global installs take precedence over host tools.
+    pub fn resolve_program(
+        &self,
+        program: &str,
+        case_path: &std::ffi::OsStr,
+    ) -> Result<PathBuf, String> {
         match program {
             "vp" | "vpr" | "vpx" | "vpt" | "oxfmt" | "oxlint" => {
                 let name = if cfg!(windows) {
@@ -295,9 +302,10 @@ impl FlavorRuntime {
                 };
                 Ok(name)
             }
-            "node" => Ok(self.node_dir.join(format!("node{}", std::env::consts::EXE_SUFFIX))),
-            "git" | "npm" | "pnpm" | "yarn" | "bun" => which::which(program)
-                .map_err(|e| format!("`{program}` not found on the harness PATH: {e}")),
+            "node" | "git" | "npm" | "pnpm" | "yarn" | "bun" => {
+                which::which_in(program, Some(case_path), PathBuf::from("."))
+                    .map_err(|e| format!("`{program}` not found on the case PATH: {e}"))
+            }
             other => Err(format!(
                 "step program `{other}` is not allowed; use a `vpt` subcommand instead"
             )),

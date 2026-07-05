@@ -161,7 +161,7 @@ Semantics:
 
 - `argv[0]` may be `vp`, `vpr`, `vpx`, `vpt`, or an allow-listed real tool (`node`, `git`, `npm`, `pnpm`, `yarn`, `bun`). Everything else (file inspection, setup, assertions) goes through `vpt` so behavior is identical on Windows. There is no shell: no `&&`, no redirection, no comment stripping, no glob surprises.
 - Steps run sequentially. Nonzero exit codes are recorded in the snapshot (`**Exit code:** N`) and execution continues; a step timeout kills the child, records `timeout`, and skips the remaining steps.
-- `snapshot = false` replaces today's `ignoreOutput`: the step heading and exit code still appear, the screen does not.
+- `snapshot = false` replaces today's `ignoreOutput` with the same on-success-only semantics: the step heading and exit code still appear and a failing step keeps its screen for diagnosis; only successful output is omitted.
 - `tty = false` spawns with pipes instead of a PTY for cases that specifically test piped/CI-style output. The default is a real PTY, which flips today's default: the CLI under test sees a TTY unless the case says otherwise, matching what users see.
 
 ### Interactions

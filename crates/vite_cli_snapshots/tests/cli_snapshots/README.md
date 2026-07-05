@@ -95,7 +95,8 @@ A step is a bare argv array or a table:
   comment = "...",            # rendered under the step heading
   envs = [["K", "V"]],        # per-step env
   timeout = 120000,           # ms, default 50s
-  snapshot = false,           # run but omit the screen from the snapshot
+  snapshot = false,           # omit the screen while the step succeeds
+                              #   (failures always keep their output)
   tty = false,                # piped stdio instead of a PTY (non-TTY tests)
   interactions = [ ... ] }
 ```

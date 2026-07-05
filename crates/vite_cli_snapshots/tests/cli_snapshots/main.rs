@@ -77,7 +77,9 @@ struct StepConfig {
     #[serde(default)]
     timeout: Option<u64>,
     /// When false, the step still runs (heading and exit code appear in the
-    /// snapshot) but its screen is omitted. Replaces the old `ignoreOutput`.
+    /// snapshot) but its screen is omitted while the step succeeds; failures
+    /// always keep their output. Replaces the old `ignoreOutput`, which had
+    /// the same on-success-only semantics.
     #[serde(default = "default_true")]
     snapshot: bool,
     /// When false, the step runs with piped stdio instead of a PTY, for cases
@@ -455,7 +457,11 @@ impl CaseHome {
 /// behaviour the default, and grid rendering strips styling from snapshots.
 fn baseline_env(rt: &FlavorRuntime, case_home: &CaseHome) -> BTreeMap<String, OsString> {
     let mut env: BTreeMap<String, OsString> = BTreeMap::new();
-    env.insert("PATH".into(), rt.path_env.clone());
+    // The case's VP_HOME/bin comes first so `vp env setup` shims take
+    // precedence over the harness-provided tools once a case creates them.
+    let mut path_entries = vec![case_home.vp_home().join("bin")];
+    path_entries.extend(std::env::split_paths(&rt.path_env));
+    env.insert("PATH".into(), std::env::join_paths(path_entries).unwrap());
     // xterm-256color keeps anstream from stripping the OSC 8 milestone
     // sequences the harness synchronizes on.
     env.insert("TERM".into(), "xterm-256color".into());
@@ -616,6 +622,11 @@ fn run_case(
         case_env.insert(key.clone(), value.into());
     }
 
+    // Real tools resolve through the case's PATH (may be overridden by the
+    // case's own env table).
+    let case_path: OsString =
+        case_env.get("PATH").cloned().unwrap_or_else(|| runtime.path_env.clone());
+
     let stage_str = stage.to_str().unwrap().to_owned();
     let home_str = case_home.home.to_str().unwrap().to_owned();
     let repo_root = flavor::repo_root();
@@ -642,7 +653,7 @@ fn run_case(
     for step in &case.steps {
         let argv = step.argv();
         assert!(!argv.is_empty(), "step argv must not be empty");
-        let program = runtime.resolve_program(&argv[0])?;
+        let program = runtime.resolve_program(&argv[0], &case_path)?;
 
         // Most steps add no env of their own; borrow the case env then.
         let step_env_override;
@@ -798,7 +809,11 @@ fn run_case(
             }
         }
 
-        if step.snapshot() {
+        // `snapshot = false` suppresses the screen only on success; failures
+        // always keep their output for diagnosis (legacy ignoreOutput
+        // semantics).
+        let succeeded = matches!(termination_state, TerminationState::Exited(0));
+        if step.snapshot() || !succeeded {
             let redacted = redact_output(
                 raw_output,
                 &[
@@ -816,7 +831,7 @@ fn run_case(
     for step in &case.after {
         let argv = step.argv();
         assert!(!argv.is_empty(), "after-step argv must not be empty");
-        if let Ok(program) = runtime.resolve_program(&argv[0]) {
+        if let Ok(program) = runtime.resolve_program(&argv[0], &case_path) {
             let _ = std::process::Command::new(program)
                 .args(&argv[1..])
                 .env_clear()
