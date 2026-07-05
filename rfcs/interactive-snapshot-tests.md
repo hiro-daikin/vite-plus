@@ -40,12 +40,12 @@ Adding a PTY mode to `snap-test.ts` would keep the no-assertion model, the shell
 
 The vite-task repository has a working implementation of exactly this design, used by ~190 snapshot files today, including interactive selector navigation and ctrl-c cancellation cases. Its pieces:
 
-| Crate | Role |
-| ----- | ---- |
-| `pty_terminal` | Spawns a child in a PTY (`portable-pty`), feeds output through a `vt100` emulator, answers cursor-position queries, handles resize and ctrl-c. Encodes platform workarounds: ConPTY on Windows, a global lock for musl PTY crashes, macOS slave-fd lifetime for EIO truncation. |
-| `pty_terminal_test` | `TestTerminal` wrapper plus `Reader::expect_milestone(name)`: block until the child emits a named milestone, then return the rendered screen. |
-| `pty_terminal_test_client` | Child-side helper that encodes milestones as OSC 8 hyperlinks (`https://milestone.invalid/<hex(name)>` with a zero-width-space anchor), which survive both Unix PTYs and Windows ConPTY and arrive inline with the output they mark. |
-| `snapshot_test` | Minimal snapshot store: compare or update via `UPDATE_SNAPSHOTS=1`, write `<name>.new` on mismatch, return a unified diff as the failure message. |
+| Crate                      | Role                                                                                                                                                                                                                                                                            |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pty_terminal`             | Spawns a child in a PTY (`portable-pty`), feeds output through a `vt100` emulator, answers cursor-position queries, handles resize and ctrl-c. Encodes platform workarounds: ConPTY on Windows, a global lock for musl PTY crashes, macOS slave-fd lifetime for EIO truncation. |
+| `pty_terminal_test`        | `TestTerminal` wrapper plus `Reader::expect_milestone(name)`: block until the child emits a named milestone, then return the rendered screen.                                                                                                                                   |
+| `pty_terminal_test_client` | Child-side helper that encodes milestones as OSC 8 hyperlinks (`https://milestone.invalid/<hex(name)>` with a zero-width-space anchor), which survive both Unix PTYs and Windows ConPTY and arrive inline with the output they mark.                                            |
+| `snapshot_test`            | Minimal snapshot store: compare or update via `UPDATE_SNAPSHOTS=1`, write `<name>.new` on mismatch, return a unified diff as the failure message.                                                                                                                               |
 
 On top of these, `vite_task_bin/tests/e2e_snapshots` implements a `libtest-mimic` custom test target: fixtures declare cases in `snapshots.toml`, steps are argv arrays (no shell), interactive steps carry an ordered `interactions` list, and each case produces one Markdown snapshot containing the command lines, the interaction log, and fenced terminal screenshots captured at each milestone and at exit.
 
@@ -319,22 +319,22 @@ It is deliberately not a new design. vite-task's `vtt` multitool already covers 
 
 Setup and assertion subcommands (replacing shell built-ins in old cases), all `vtt`-aligned:
 
-| Subcommand | Replaces |
-| ---------- | -------- |
-| `vpt print-file <file>` | `cat` (snapshot file contents) |
-| `vpt stat-file <path>` | `test -f x && echo ...` existence checks |
+| Subcommand                                                       | Replaces                                          |
+| ---------------------------------------------------------------- | ------------------------------------------------- |
+| `vpt print-file <file>`                                          | `cat` (snapshot file contents)                    |
+| `vpt stat-file <path>`                                           | `test -f x && echo ...` existence checks          |
 | `vpt write-file` / `vpt touch-file` / `vpt replace-file-content` | `echo`/`printf` redirects, in-place fixture edits |
-| `vpt list-dir` / `vpt mkdir` / `vpt rm` / `vpt cp` | coreutils usage |
-| `vpt grep-file <pattern> <file>` | content assertions |
-| `vpt pipe-stdin <data> -- <argv>...` | piped-stdin scenarios without a shell |
+| `vpt list-dir` / `vpt mkdir` / `vpt rm` / `vpt cp`               | coreutils usage                                   |
+| `vpt grep-file <pattern> <file>`                                 | content assertions                                |
+| `vpt pipe-stdin <data> -- <argv>...`                             | piped-stdin scenarios without a shell             |
 
 Payload subcommands, for cases where the command under test spawns other commands (`vp run` task execution, caching, cancellation, stdio passthrough), same as their `vtt` counterparts:
 
-| Subcommand | Purpose |
-| ---------- | ------- |
+| Subcommand                                                          | Purpose                                                               |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------- |
 | `vpt print` / `vpt print-color` / `vpt print-env` / `vpt print-cwd` | deterministic task output; color, env, and cwd propagation into tasks |
-| `vpt check-tty` / `vpt read-stdin` | stdio wiring of spawned tasks |
-| `vpt exit <code>` / `vpt exit-on-ctrlc` / `vpt barrier` | exit-code handling, cancellation, concurrency synchronization |
+| `vpt check-tty` / `vpt read-stdin`                                  | stdio wiring of spawned tasks                                         |
+| `vpt exit <code>` / `vpt exit-on-ctrlc` / `vpt barrier`             | exit-code handling, cancellation, concurrency synchronization         |
 
 vp-specific additions with no `vtt` counterpart: `vpt json-edit <file> <dot-path> <value>` (the existing snap-tests `json-edit` helper for fixture manifest edits) and `vpt chmod`.
 
@@ -384,20 +384,20 @@ For each old case directory it emits a new fixture under `crates/vite_cli_snapsh
 
 ### Field mapping
 
-| Old (`steps.json`) | New (`snapshots.toml`) |
-| ------------------ | ---------------------- |
-| tree location (`snap-tests` / `snap-tests-global`) | `vp = "local"` / `vp = "global"` (from `--vp`) |
-| `commands: [...]` | `steps = [...]` via command translation (below) |
-| `env` (value `""`) | `env` table (`unset-env` entry) |
-| `ignoredPlatforms: ["win32", {os, libc}]` | `skip-platforms` (`win32` to `windows`, `darwin` to `macos`) |
-| `ignoreOutput: true` | `snapshot = false` |
-| `timeout` | `timeout` |
-| `serial: true` | dropped, reported (isolation replaces it) |
-| `localVitePlusPackages: true` | `local-registry = true` |
-| `linkCheckoutPackages: true` | case flag, carried over |
-| `after: [...]` | `after` steps |
-| fixture files, `mock-manifest.json`, `tarballs/` | copied verbatim |
-| ` # trailing comment` on a command | step `comment` |
+| Old (`steps.json`)                                 | New (`snapshots.toml`)                                       |
+| -------------------------------------------------- | ------------------------------------------------------------ |
+| tree location (`snap-tests` / `snap-tests-global`) | `vp = "local"` / `vp = "global"` (from `--vp`)               |
+| `commands: [...]`                                  | `steps = [...]` via command translation (below)              |
+| `env` (value `""`)                                 | `env` table (`unset-env` entry)                              |
+| `ignoredPlatforms: ["win32", {os, libc}]`          | `skip-platforms` (`win32` to `windows`, `darwin` to `macos`) |
+| `ignoreOutput: true`                               | `snapshot = false`                                           |
+| `timeout`                                          | `timeout`                                                    |
+| `serial: true`                                     | dropped, reported (isolation replaces it)                    |
+| `localVitePlusPackages: true`                      | `local-registry = true`                                      |
+| `linkCheckoutPackages: true`                       | case flag, carried over                                      |
+| `after: [...]`                                     | `after` steps                                                |
+| fixture files, `mock-manifest.json`, `tarballs/`   | copied verbatim                                              |
+| ` # trailing comment` on a command                 | step `comment`                                               |
 
 ### Command translation
 
