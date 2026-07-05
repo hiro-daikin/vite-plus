@@ -83,10 +83,22 @@ test:
 # PTY-based CLI snapshot tests (crates/vite_cli_snapshots). Builds the global
 # binary first so the harness never tests a stale build. Filter by trial name
 # substring: `just snapshot-test create`. Accept snapshot changes with
-# `UPDATE_SNAPSHOTS=1 just snapshot-test`.
+# `UPDATE_SNAPSHOTS=1 just snapshot-test`. Local-flavor cases additionally
+# need a built packages/cli (`pnpm build`); the harness fails fast when dist
+# is missing or stale. Use snapshot-test-global on checkouts without one.
 snapshot-test *args='':
   cargo build -p vite_global_cli
   cargo test -p vite_cli_snapshots -- {{args}}
+
+# Global flavor + vpt cases only: needs no JS build, for Rust-side work on
+# a checkout that never ran `pnpm build`.
+[unix]
+snapshot-test-global *args='':
+  VP_SNAP_SKIP_FLAVORS=local just snapshot-test {{args}}
+
+[windows]
+snapshot-test-global *args='':
+  $Env:VP_SNAP_SKIP_FLAVORS='local'; just snapshot-test {{args}}
 
 # Single source of truth for clippy, used by CI too. The `-A` flags allow
 # new toolchain lints that fire in upstream rolldown crates without a `[lints]` table.

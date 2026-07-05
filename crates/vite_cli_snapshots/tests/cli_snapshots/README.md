@@ -44,6 +44,7 @@ the stored snapshot. Never hand-edit `.md` snapshots; re-record instead.
 ```bash
 just snapshot-test                    # build vp, run everything
 just snapshot-test <substring>        # filter by trial name
+just snapshot-test-global             # no JS build needed (skips local flavor)
 UPDATE_SNAPSHOTS=1 just snapshot-test # accept snapshot changes
 pnpm snapshot-test                    # same, via pnpm
 cargo test -p vite_cli_snapshots -- <filter>      # if vp is already built
