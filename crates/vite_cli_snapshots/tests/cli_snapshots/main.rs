@@ -813,7 +813,11 @@ fn main() {
     let tmp_dir = tempfile::tempdir().unwrap();
     let tmp_dir_path: Arc<Path> = Arc::from(tmp_dir.path().canonicalize().unwrap());
 
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    // Prefer the runtime env var: cargo sets it for test processes, and
+    // nextest rewrites it when running a relocated archive
+    // (--workspace-remap), where the compile-time path no longer exists.
+    let manifest_dir = std::env::var_os("CARGO_MANIFEST_DIR")
+        .map_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")), PathBuf::from);
     let fixtures_dir = manifest_dir.join("tests/cli_snapshots/fixtures");
 
     let mut fixture_paths = std::fs::read_dir(&fixtures_dir)

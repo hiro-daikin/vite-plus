@@ -41,7 +41,10 @@ pub struct FlavorRuntime {
 }
 
 pub fn repo_root() -> PathBuf {
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    // Runtime env preferred over the compile-time path for relocated nextest
+    // archives (see main.rs).
+    let manifest_dir = std::env::var_os("CARGO_MANIFEST_DIR")
+        .map_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")), PathBuf::from);
     manifest_dir.parent().unwrap().parent().unwrap().to_path_buf()
 }
 
