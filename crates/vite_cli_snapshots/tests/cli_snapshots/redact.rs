@@ -19,6 +19,13 @@ static VERSION_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
 });
 static THREAD_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"\d+ threads").unwrap());
+// Output bytes differ across OSes (line endings, embedded paths), so byte
+// sizes and content-derived asset hashes can never be part of a shared
+// snapshot.
+static SIZE_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"\b\d+(\.\d+)?\s?(B|kB|KB|KiB|MB|MiB|GB|GiB)\b").unwrap());
+static ASSET_HASH_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"-([A-Za-z0-9_-]{8})\.(js|mjs|cjs|css)\b").unwrap());
 static NODE_WARNING_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"(?m)^\(node:\d+\) ExperimentalWarning:.*\n?").unwrap());
 static NODE_TRACE_WARNING_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
@@ -35,16 +42,25 @@ static NODE_TRACE_WARNING_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
 fn redact_string(s: &mut String, redactions: &[(&str, &str)]) {
     use cow_utils::CowUtils as _;
     for (from, to) in redactions {
-        if let Cow::Owned(mut replaced) = s.as_str().cow_replace(from, to) {
-            if cfg!(windows) {
-                // Normalize backslashes to forward slashes on Windows
-                replaced = replaced.cow_replace("\\", "/").into_owned();
-                // Collapse double slashes that arise when an escaped path separator (\\)
-                // is only partially replaced (e.g., Debug-format paths end with \\")
-                while replaced.contains("//") {
-                    replaced = replaced.cow_replace("//", "/").into_owned();
-                }
+        if let Cow::Owned(replaced) = s.as_str().cow_replace(from, to) {
+            *s = replaced;
+        }
+    }
+    // Normalize path separators unconditionally on Windows: tools print
+    // OS-native separators for relative paths too (`src\index.ts`), which no
+    // absolute-path redaction pair ever matches. Debug-formatted paths escape
+    // separators (`\\`); collapse those BEFORE converting so they cannot
+    // become `//` (collapsing afterwards would also mangle `https://` URLs).
+    // NOTE: a `formatted-snapshot` fixture running on Windows would have its
+    // literal escape renderings (`\x1b[...`) rewritten by this; none exists
+    // today, and the legacy harness made the same tradeoff.
+    if cfg!(windows) {
+        while s.contains("\\\\") {
+            if let Cow::Owned(replaced) = s.as_str().cow_replace("\\\\", "\\") {
+                *s = replaced;
             }
+        }
+        if let Cow::Owned(replaced) = s.as_str().cow_replace('\\', "/") {
             *s = replaced;
         }
     }
@@ -84,6 +100,19 @@ fn path_variants(path: &str, label: &'static str) -> Vec<(String, &'static str)>
     reason = "String required by regex replace_all and cow_replace APIs"
 )]
 pub fn redact_output(mut output: String, paths: &[(&str, &'static str)]) -> String {
+    // ConPTY repaints rows padded to the full grid width with explicit
+    // spaces when a second console client attaches to the terminal. Trailing
+    // blanks are never meaningful in a rendered grid, so trim every row on
+    // every platform, keeping one snapshot valid across OSes (Unix captures
+    // already come trimmed from vt100, so this is a no-op there).
+    if output.lines().any(|line| line.ends_with([' ', '\t'])) {
+        let had_trailing_newline = output.ends_with('\n');
+        output = output.lines().map(str::trim_end).collect::<Vec<_>>().join("\n");
+        if had_trailing_newline {
+            output.push('\n');
+        }
+    }
+
     let mut redactions: Vec<(String, &'static str)> = Vec::new();
     for (path, label) in paths {
         redactions.extend(path_variants(path, label));
@@ -104,6 +133,24 @@ pub fn redact_output(mut output: String, paths: &[(&str, &'static str)]) -> Stri
 
     // Redact thread counts like "16 threads" to "<n> threads"
     output = THREAD_RE.replace_all(&output, "<n> threads").into_owned();
+
+    // Redact byte sizes like "0.12 kB" to "<size>"
+    output = SIZE_RE.replace_all(&output, "<size>").into_owned();
+
+    // Redact content-hash suffixes in emitted asset names
+    // (`index-Dra_-aT4.js` to `index-<hash>.js`). Requires a digit or an
+    // uppercase letter in the hash so ordinary 8-letter words in filenames
+    // (`some-tsconfig.js`) survive.
+    output = ASSET_HASH_RE
+        .replace_all(&output, |caps: &regex::Captures| {
+            let hash = &caps[1];
+            if hash.bytes().any(|b| b.is_ascii_digit() || b.is_ascii_uppercase()) {
+                format!("-<hash>.{}", &caps[2])
+            } else {
+                caps[0].to_owned()
+            }
+        })
+        .into_owned();
 
     // Remove Node.js experimental warnings (e.g., Type Stripping warnings)
     output = NODE_WARNING_RE.replace_all(&output, "").into_owned();

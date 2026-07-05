@@ -8,8 +8,8 @@ vite <version> building client environment for production...
 transforming...✓ 4 modules transformed.
 rendering chunks...
 computing gzip size...
-dist/index.html                0.12 kB │ gzip: 0.12 kB
-dist/assets/index-Dra_-aT4.js  0.71 kB │ gzip: 0.40 kB
+dist/index.html                <size> │ gzip: <size>
+dist/assets/index-<hash>.js  <size> │ gzip: <size>
 
 ✓ built in <duration>
 ```
@@ -24,8 +24,8 @@ vite <version> building client environment for production...
 transforming...✓ 4 modules transformed.
 rendering chunks...
 computing gzip size...
-dist/index.html                0.12 kB │ gzip: 0.12 kB
-dist/assets/index-Dra_-aT4.js  0.71 kB │ gzip: 0.40 kB
+dist/index.html                <size> │ gzip: <size>
+dist/assets/index-<hash>.js  <size> │ gzip: <size>
 
 ✓ built in <duration>
 
@@ -43,8 +43,8 @@ vite <version> building client environment for production...
 transforming...✓ 4 modules transformed.
 rendering chunks...
 computing gzip size...
-dist/index.html                0.12 kB │ gzip: 0.12 kB
-dist/assets/index-Dra_-aT4.js  0.71 kB │ gzip: 0.40 kB
+dist/index.html                <size> │ gzip: <size>
+dist/assets/index-<hash>.js  <size> │ gzip: <size>
 
 ✓ built in <duration>
 ```
