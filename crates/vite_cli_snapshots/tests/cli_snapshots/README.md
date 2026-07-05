@@ -103,7 +103,8 @@ A step is a bare argv array or a table:
 redirects, no globs. File setup and assertions go through `vpt` so behavior
 is identical on every platform:
 
-`vpt print-file` (cat), `vpt stat-file` (exists/missing), `vpt write-file`,
+`vpt print-file` (cat), `vpt stat-file` (prints `file`/`dir`/`missing`, so
+`test -f` vs `test -d` fidelity is kept), `vpt write-file`,
 `vpt touch-file`, `vpt replace-file-content`, `vpt list-dir`, `vpt mkdir`,
 `vpt rm`, `vpt cp`, `vpt chmod`, `vpt grep-file`, `vpt json-edit`,
 `vpt pipe-stdin <data> -- <argv>`, plus task payloads for `vp run` tests:
@@ -185,9 +186,11 @@ UPDATE_SNAPSHOTS=1 just snapshot-test <name_filter>
 ```
 
 The migrator converts `steps.json` fields, splits `&&` chains, maps shell
-built-ins to `vpt`, removes the successfully converted old case directories
-(`--keep-old` defers that; git history keeps the originals), and reports
-anything needing hand conversion in `MIGRATION-REPORT.md` (generated,
-gitignored). A case whose target fixture already exists is skipped and
+built-ins to `vpt`, removes cleanly converted (TODO-free) old case
+directories (`--keep-old` defers that; git history keeps the originals),
+and reports anything needing hand conversion in `MIGRATION-REPORT.md`
+(generated, gitignored). Cases with TODOs keep their legacy dir until the
+hand conversion lands, so placeholder steps never silently replace real
+coverage. A case whose target fixture already exists is skipped and
 reported: the same name in both legacy trees means a hand merge, usually a
 second `[[case]]` in the fixture or a `vp = ["local", "global"]` matrix.

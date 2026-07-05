@@ -126,6 +126,11 @@ function tokenize(command: string): string[] | null {
 
 /** Extracts a trailing ` # comment` (outside quotes) from a command line. */
 function extractComment(line: string): { command: string; comment?: string } {
+  const trimmed = line.trimStart();
+  if (trimmed.startsWith('#')) {
+    // Comment-only entries are documentation, not commands.
+    return { command: '', comment: trimmed.slice(1).trim() };
+  }
   let quote: string | null = null;
   for (let i = 0; i < line.length; i++) {
     const ch = line[i];
@@ -324,6 +329,9 @@ function translateSimple(command: string, ctx: TranslationContext): NewStep | nu
 function translateCommand(raw: string, ctx: TranslationContext): NewStep[] {
   const { command, comment } = extractComment(raw);
   if (command.length === 0) {
+    if (comment) {
+      ctx.notes.push(`dropped comment-only command: \`# ${comment}\``);
+    }
     return [];
   }
   if (command.includes('||')) {
@@ -569,10 +577,13 @@ export function migrateSnapTests(): void {
     const caseDir = path.join(oldDir, name);
     const report = migrateCase(caseDir, name, flavor, outDir);
     reports.push(report);
-    // The case now lives in exactly one tree; git history keeps the original
-    // (and TODO placeholders embed the raw command lines).
-    if (!keepOld && !report.skipped) {
+    // Only cleanly converted cases leave the legacy tree: TODO placeholders
+    // are not coverage, so those cases keep their old dir until the hand
+    // conversion lands.
+    if (!keepOld && !report.skipped && report.todos.length === 0) {
       fs.rmSync(caseDir, { recursive: true, force: true });
+    } else if (!keepOld && !report.skipped && report.todos.length > 0) {
+      report.notes.push('old case dir kept until the TODOs are hand-converted');
     }
   }
 
@@ -611,9 +622,10 @@ export function migrateSnapTests(): void {
   fs.writeFileSync(reportPath, reportLines.join('\n'));
   const migrated = reports.filter((r) => !r.skipped).length;
   const skipped = reports.length - migrated;
+  const removed = keepOld ? 0 : reports.filter((r) => !r.skipped && r.todos.length === 0).length;
   console.log(
     `Migrated ${migrated} case(s) to ${outDir}${
-      keepOld || migrated === 0 ? '' : ' and removed the old case dir(s)'
+      removed > 0 ? ` and removed ${removed} cleanly converted old case dir(s)` : ''
     }${skipped > 0 ? `, skipped ${skipped}` : ''}; ${todoCount} TODO(s) need hand conversion.`,
   );
   console.log(`Report: ${reportPath}`);

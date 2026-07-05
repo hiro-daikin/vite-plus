@@ -27,6 +27,13 @@ describe('fixtureName', () => {
 });
 
 describe('translateCommand', () => {
+  it('drops comment-only commands with a report note', () => {
+    const context = ctx();
+    expect(translateCommand('# tests below assert the cache state', context)).toEqual([]);
+    expect(context.notes).toHaveLength(1);
+    expect(context.todos).toHaveLength(0);
+  });
+
   it('drops `!` from test expressions (stat-file records actual state)', () => {
     const steps = translateCommand('test ! -f .nvmrc', ctx());
     expect(argvs(steps)).toEqual([['vpt', 'stat-file', '.nvmrc']]);

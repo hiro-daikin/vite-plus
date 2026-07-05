@@ -775,14 +775,27 @@ fn run_case(
             doc.push_str("\n\n");
         }
 
-        match &termination_state {
-            TerminationState::TimedOut => {
-                doc.push_str("**Exit code:** timeout\n\n");
-            }
-            TerminationState::Exited(exit_code) => {
-                if *exit_code != 0 {
-                    doc.push_str(&format!("**Exit code:** {exit_code}\n\n"));
-                }
+        // A hung command must fail the trial in both modes: a timeout can
+        // never be recorded or blessed as a baseline, not even with
+        // UPDATE_SNAPSHOTS=1.
+        if matches!(termination_state, TerminationState::TimedOut) {
+            let redacted = redact_output(
+                raw_output,
+                &[
+                    (stage_str.as_str(), "<workspace>"),
+                    (home_str.as_str(), "<home>"),
+                    (repo_str.as_str(), "<repo>"),
+                ],
+            );
+            return Err(format!(
+                "step `{}` timed out after {timeout:?}; partial output:\n{redacted}",
+                step.display_command_line(&case.cwd),
+            ));
+        }
+
+        if let TerminationState::Exited(exit_code) = &termination_state {
+            if *exit_code != 0 {
+                doc.push_str(&format!("**Exit code:** {exit_code}\n\n"));
             }
         }
 
@@ -796,11 +809,6 @@ fn run_case(
                 ],
             );
             doc.push_str(&redacted);
-        }
-
-        // Skip remaining steps if timed out
-        if matches!(termination_state, TerminationState::TimedOut) {
-            break;
         }
     }
 

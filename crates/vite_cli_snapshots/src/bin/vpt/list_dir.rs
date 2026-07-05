@@ -33,8 +33,16 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     }
     let dir = dir.ok_or("Usage: vpt list-dir <dir> [--ext <suffix>] [--recursive]")?;
 
+    // Like `ls <file>`, a file target prints its own name; legacy fixtures
+    // use that form as an existence assertion.
+    let path = std::path::Path::new(dir);
+    if path.is_file() {
+        println!("{dir}");
+        return Ok(());
+    }
+
     let mut names: Vec<String> = Vec::new();
-    collect(std::path::Path::new(dir), ext, recursive, &mut names)?;
+    collect(path, ext, recursive, &mut names)?;
     names.sort();
     for name in names {
         println!("{name}");

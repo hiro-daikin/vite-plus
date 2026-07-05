@@ -16,7 +16,7 @@ hello from vpt
 ## `vpt stat-file notes/hello.txt missing.txt`
 
 ```
-notes/hello.txt: exists
+notes/hello.txt: file
 missing.txt: missing
 ```
 
@@ -50,10 +50,28 @@ touch-file creates missing files
 ```
 ```
 
-## `vpt stat-file created-by-touch.txt`
+## `vpt stat-file created-by-touch.txt notes`
+
+stat-file reports the entry type: file, dir, or missing
 
 ```
-created-by-touch.txt: exists
+created-by-touch.txt: file
+notes: dir
+```
+
+## `vpt rm -f never-existed.txt`
+
+rm -f ignores missing targets
+
+```
+```
+
+## `vpt list-dir notes/hello.txt`
+
+list-dir on a file prints the path, like ls
+
+```
+notes/hello.txt
 ```
 
 ## `vpt chmod +x created-by-touch.txt`
