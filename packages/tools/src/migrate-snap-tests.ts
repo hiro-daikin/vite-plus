@@ -221,7 +221,7 @@ function translateSimple(command: string, ctx: TranslationContext): NewStep | nu
 
   const tokens = tokenize(command);
   if (!tokens || tokens.length === 0) {
-    return todo('unparseable command');
+    return todo('unparsable command');
   }
 
   // Leading VAR=value assignments become step envs.
