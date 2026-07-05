@@ -43,6 +43,39 @@ hello.txt
 }
 ```
 
+## `vpt touch-file created-by-touch.txt`
+
+touch-file creates missing files
+
+```
+```
+
+## `vpt stat-file created-by-touch.txt`
+
+```
+created-by-touch.txt: exists
+```
+
+## `vpt chmod +x created-by-touch.txt`
+
+symbolic +x is accepted (no-op on Windows)
+
+```
+```
+
+## `vpt pipe-stdin -- vpt read-stdin`
+
+empty pipe-stdin data means empty stdin, not a bare newline
+
+```
+```
+
+## `vpt pipe-stdin hello -- vpt read-stdin`
+
+```
+hello
+```
+
 ## `vpt exit 3`
 
 Nonzero exit codes are recorded in the snapshot.

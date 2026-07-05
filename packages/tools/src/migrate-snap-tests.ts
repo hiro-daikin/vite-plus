@@ -23,7 +23,13 @@ import type { Steps as OldSteps } from './snap-test.ts';
 interface NewStep {
   argv: string[];
   comment?: string;
+  cwd?: string;
   envs?: [string, string][];
+}
+
+/** New-harness fixture/case names allow only `[A-Za-z0-9_]`. */
+function fixtureName(caseName: string): string {
+  return caseName.replaceAll(/[^A-Za-z0-9_]/g, '_');
 }
 
 interface CaseReport {
@@ -159,12 +165,15 @@ const COREUTILS_MAP: Record<string, string> = {
   cat: 'print-file',
   ls: 'list-dir',
   touch: 'touch-file',
-  chmod: 'chmod',
-  'json-edit': 'json-edit',
 };
 
 /** Programs whose name and args map to the identically-named vpt subcommand. */
 const VPT_VERBATIM = new Set(['mkdir', 'rm', 'cp']);
+
+/** New steps run without a shell, so glob patterns would be passed literally. */
+function hasGlob(args: string[]): boolean {
+  return args.some((a) => /[*?[\]]/.test(a));
+}
 
 interface TranslationContext {
   todos: string[];
@@ -190,13 +199,22 @@ function translateSimple(command: string, ctx: TranslationContext): NewStep | nu
 
   // `echo/printf ... > file` (single `>`, not append) becomes an explicit
   // write-file; every other operator or redirect form needs hand conversion.
+  // `echo` appends the newline it would have written; `printf` is exact but
+  // only when the content carries no escape/format sequences.
   const redirect = command.includes('>>')
     ? null
     : command.match(/^(echo|printf)\s+(.+?)\s*>\s*(\S+)$/);
   if (redirect) {
     const contentTokens = tokenize(redirect[2]);
     if (contentTokens) {
-      return { argv: ['vpt', 'write-file', redirect[3], contentTokens.join(' ')] };
+      const content = contentTokens.join(' ');
+      if (redirect[1] === 'echo') {
+        return { argv: ['vpt', 'write-file', redirect[3], `${content}\n`] };
+      }
+      if (!/[\\%]/.test(content)) {
+        return { argv: ['vpt', 'write-file', redirect[3], content] };
+      }
+      return todo('printf escape sequences need hand conversion');
     }
   }
   if (/[|;`]|\$\(|<|>>/.test(command)) {
@@ -211,11 +229,16 @@ function translateSimple(command: string, ctx: TranslationContext): NewStep | nu
     return todo('unparsable command');
   }
 
-  // Leading VAR=value assignments become step envs.
+  // Leading VAR=value assignments become step envs. Values needing shell
+  // expansion ($(pwd), $PATH, backticks) cannot be represented statically.
   const envs: [string, string][] = [];
   while (tokens.length > 0 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0])) {
     const [key, ...rest] = tokens.shift()!.split('=');
-    envs.push([key, rest.join('=')]);
+    const value = rest.join('=');
+    if (/[$`]/.test(value)) {
+      return todo(`env value for ${key} needs shell expansion`);
+    }
+    envs.push([key, value]);
   }
   if (tokens.length === 0) {
     return todo('env-only command');
@@ -243,17 +266,43 @@ function translateSimple(command: string, ctx: TranslationContext): NewStep | nu
   let step: NewStep | null = null;
   if (PASSTHROUGH_PROGRAMS.has(program)) {
     step = { argv: tokens };
-  } else if (program in COREUTILS_MAP) {
-    step = { argv: ['vpt', COREUTILS_MAP[program], ...args.filter((a) => !a.startsWith('-'))] };
-  } else if (VPT_VERBATIM.has(program)) {
-    step = { argv: ['vpt', program, ...args] };
+  } else if (program in COREUTILS_MAP || VPT_VERBATIM.has(program) || program === 'chmod') {
+    if (hasGlob(args)) {
+      return todo('glob expansion needs hand conversion');
+    }
+    if (program === 'chmod') {
+      // vpt chmod accepts an octal mode or the common `+x` form only.
+      if (args.length === 2 && /^([0-7]{3,4}|\+x)$/.test(args[0])) {
+        step = { argv: ['vpt', 'chmod', ...args] };
+      } else {
+        return todo('unsupported chmod invocation');
+      }
+    } else if (program in COREUTILS_MAP) {
+      step = { argv: ['vpt', COREUTILS_MAP[program], ...args.filter((a) => !a.startsWith('-'))] };
+    } else {
+      step = { argv: ['vpt', program, ...args] };
+    }
+  } else if (program === 'json-edit') {
+    // The legacy repo helper also accepted assignment expressions
+    // (`json-edit pkg.json '_.dependencies = {}'`); vpt json-edit is
+    // strictly `<file> <dot-path> <value>`.
+    if (args.length === 3 && !args[1].includes('=') && !args[1].includes(' ')) {
+      step = { argv: ['vpt', 'json-edit', ...args] };
+    } else {
+      return todo('legacy json-edit expression needs hand conversion');
+    }
   } else if (program === 'echo') {
     step = { argv: ['vpt', 'print', args.join(' ')] };
   } else if (program === 'test') {
     // `test -f x` style existence checks map to stat-file, which prints an
     // explicit exists/missing line (a stronger assertion than exit codes).
-    const paths = args.filter((a) => !a.startsWith('-'));
-    if (paths.length > 0 && args.every((a) => /^-[fde]$/.test(a) || !a.startsWith('-'))) {
+    // `!` only flips the exit code; stat-file records the actual
+    // exists/missing state either way, so it is dropped from the paths.
+    const paths = args.filter((a) => a !== '!' && !a.startsWith('-'));
+    if (
+      paths.length > 0 &&
+      args.every((a) => a === '!' || /^-[fde]$/.test(a) || !a.startsWith('-'))
+    ) {
       step = { argv: ['vpt', 'stat-file', ...paths] };
     } else {
       return todo('unsupported test expression');
@@ -296,9 +345,25 @@ function translateCommand(raw: string, ctx: TranslationContext): NewStep[] {
     }
   }
 
+  // `cd <dir> && ...` scopes the rest of the chain to that directory (each
+  // legacy command line started fresh at the fixture root, so the cwd never
+  // leaks across lines).
+  let cwd: string | undefined;
   for (const part of parts) {
+    if (/^cd(\s|$)/.test(part)) {
+      const cdTokens = tokenize(part);
+      const dir = cdTokens?.length === 2 ? cdTokens[1] : null;
+      if (!dir || dir.startsWith('/') || /[$`]/.test(dir)) {
+        return [makeTodo(ctx, '`cd` form needs hand conversion', command)];
+      }
+      cwd = cwd === undefined ? dir : `${cwd}/${dir}`;
+      continue;
+    }
     const step = translateSimple(part, ctx);
     if (step) {
+      if (cwd !== undefined) {
+        step.cwd = cwd;
+      }
       steps.push(step);
     }
   }
@@ -319,6 +384,7 @@ function tomlKey(key: string): string {
 function emitStep(step: NewStep, extra: { timeout?: number; snapshot?: boolean }): string {
   const isSimple =
     step.comment === undefined &&
+    step.cwd === undefined &&
     step.envs === undefined &&
     extra.timeout === undefined &&
     extra.snapshot === undefined;
@@ -327,6 +393,9 @@ function emitStep(step: NewStep, extra: { timeout?: number; snapshot?: boolean }
     return `  ${argv},`;
   }
   const fields = [`argv = ${argv}`];
+  if (step.cwd !== undefined) {
+    fields.push(`cwd = ${tomlString(step.cwd)}`);
+  }
   if (step.comment !== undefined) {
     fields.push(`comment = ${tomlString(step.comment)}`);
   }
@@ -354,7 +423,7 @@ function migrateCase(
   // Never clobber an existing fixture: the same case name can exist in both
   // legacy trees (local and global), and merging those is a hand decision
   // (usually a second [[case]] or a vp = ["local", "global"] matrix).
-  const targetDir = path.join(outDir, caseName.replaceAll('-', '_'));
+  const targetDir = path.join(outDir, fixtureName(caseName));
   if (fs.existsSync(targetDir)) {
     report.todos.push(
       `target fixture \`${path.basename(targetDir)}\` already exists; case skipped, merge it by hand`,
@@ -370,7 +439,7 @@ function migrateCase(
     localRegistry: false,
   };
 
-  const newName = caseName.replaceAll('-', '_');
+  const newName = fixtureName(caseName);
   if (newName !== caseName) {
     report.notes.push(`renamed to \`${newName}\` (identifier rule)`);
   }
@@ -549,3 +618,7 @@ export function migrateSnapTests(): void {
   );
   console.log(`Report: ${reportPath}`);
 }
+
+// Exported for unit tests only.
+export { fixtureName, translateCommand };
+export type { NewStep, TranslationContext };

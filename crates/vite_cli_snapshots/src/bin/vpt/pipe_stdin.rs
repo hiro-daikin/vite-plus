@@ -21,10 +21,12 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     {
         use std::io::Write;
         let mut stdin = child.stdin.take().unwrap();
+        // Empty data means genuinely empty stdin (immediate EOF), as
+        // documented; the newline only terminates actual input.
         if !data.is_empty() {
             stdin.write_all(data.as_bytes())?;
+            stdin.write_all(b"\n")?;
         }
-        stdin.write_all(b"\n")?;
         // stdin is closed when dropped, signaling EOF
     }
 

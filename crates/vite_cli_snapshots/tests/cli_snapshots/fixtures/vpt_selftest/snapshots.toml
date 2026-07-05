@@ -9,5 +9,10 @@ steps = [
   ["vpt", "list-dir", "notes"],
   ["vpt", "json-edit", "package.json", "scripts.build", "vp build"],
   ["vpt", "print-file", "package.json"],
+  { argv = ["vpt", "touch-file", "created-by-touch.txt"], comment = "touch-file creates missing files" },
+  ["vpt", "stat-file", "created-by-touch.txt"],
+  { argv = ["vpt", "chmod", "+x", "created-by-touch.txt"], comment = "symbolic +x is accepted (no-op on Windows)" },
+  { argv = ["vpt", "pipe-stdin", "--", "vpt", "read-stdin"], comment = "empty pipe-stdin data means empty stdin, not a bare newline" },
+  { argv = ["vpt", "pipe-stdin", "hello", "--", "vpt", "read-stdin"] },
   { argv = ["vpt", "exit", "3"], comment = "Nonzero exit codes are recorded in the snapshot." },
 ]

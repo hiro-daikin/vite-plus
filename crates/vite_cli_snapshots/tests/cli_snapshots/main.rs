@@ -467,6 +467,10 @@ fn baseline_env(rt: &FlavorRuntime, case_home: &CaseHome) -> BTreeMap<String, Os
     env.insert("VP_CLI_TEST".into(), "1".into());
     env.insert("VP_EMIT_MILESTONES".into(), "1".into());
     env.insert("NODE_NO_WARNINGS".into(), "1".into());
+    // Legacy-harness parity: `vp migrate` fixtures skip real dependency
+    // installs (slow, network-bound). Cases that want real installs unset
+    // this via `unset-env`.
+    env.insert("VP_SKIP_INSTALL".into(), "1".into());
     env.insert("VP_HOME".into(), case_home.vp_home().into_os_string());
     env.insert("NPM_CONFIG_PREFIX".into(), case_home.npm_prefix().into_os_string());
     if cfg!(windows) {
