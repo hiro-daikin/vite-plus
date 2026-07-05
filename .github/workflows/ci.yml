@@ -127,15 +127,6 @@ jobs:
 
       - run: just test
 
-      # PTY snapshot harness (crates/vite_cli_snapshots), fast global-only
-      # leg: this job has a Rust toolchain but no built packages/cli dist, so
-      # local-flavor cases cannot run here. The full both-flavor run lives in
-      # the cli-snap-test job, which builds the JS CLI.
-      - name: CLI snapshot tests (global flavor)
-        run: just snapshot-test
-        env:
-          VP_SNAP_SKIP_FLAVORS: local
-
   # Windows tests are cross-compiled on a fast Linux runner with cargo-xwin
   # (clang-cl + lld-link against the xwin-downloaded MSVC CRT/Windows SDK)
   # and packed into a portable nextest archive. The test-windows job then
