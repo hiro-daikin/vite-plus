@@ -24,6 +24,15 @@ static VERSION_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
 });
 static THREAD_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"\d+ threads").unwrap());
+// Some tool banners print runtime versions bare ("Node 24.18.0  pnpm 10.34.4"
+// in vp create); mask those by tool-name context so user semver elsewhere
+// stays assertable.
+static TOOL_VERSION_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"\b((?i:node(?:\.js)?|npm|pnpm|yarn|bun|deno))([ /]+)\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\b",
+    )
+    .unwrap()
+});
 // Output bytes differ across OSes (line endings, embedded paths), so byte
 // sizes and content-derived asset hashes can never be part of a shared
 // snapshot. The unit is kept ("<size> kB"): it only changes when content
@@ -152,6 +161,9 @@ pub fn redact_output(
 
     // Redact semver-shaped versions (bundled tool versions, Node versions).
     output = VERSION_RE.replace_all(&output, "<version>").into_owned();
+
+    // Redact bare runtime-tool versions by name context (see TOOL_VERSION_RE)
+    output = TOOL_VERSION_RE.replace_all(&output, "$1$2<version>").into_owned();
 
     // Redact thread counts like "16 threads" to "<n> threads"
     output = THREAD_RE.replace_all(&output, "<n> threads").into_owned();

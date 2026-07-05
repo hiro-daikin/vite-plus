@@ -285,23 +285,18 @@ impl FlavorRuntime {
         case_path: &std::ffi::OsStr,
     ) -> Result<PathBuf, String> {
         match program {
-            "vp" | "vpr" | "vpx" | "vpt" | "oxfmt" | "oxlint" => {
-                let name = if cfg!(windows) {
-                    // Installed as either .exe or .cmd; try both.
-                    ["exe", "cmd"]
-                        .iter()
-                        .map(|ext| self.bin_dir.join(format!("{program}.{ext}")))
-                        .find(|p| p.is_file())
-                        .ok_or_else(|| format!("`{program}` is not available in this flavor"))?
-                } else {
-                    let p = self.bin_dir.join(program);
-                    if !p.is_file() && !p.is_symlink() {
-                        return Err(format!("`{program}` is not available in this flavor"));
-                    }
-                    p
-                };
-                Ok(name)
+            "vp" | "vpr" | "vpx" | "oxfmt" | "oxlint" => {
+                // Case PATH first: shims a case creates in $VP_HOME/bin must
+                // shadow the harness-installed aliases. The flavor bin dir is
+                // on that PATH too, so this is a pure precedence rule; the
+                // direct bin-dir lookup below only remains as the fallback
+                // for cases that override PATH entirely.
+                if let Ok(found) = which::which_in(program, Some(case_path), PathBuf::from(".")) {
+                    return Ok(found);
+                }
+                self.bin_dir_tool(program)
             }
+            "vpt" => self.bin_dir_tool(program),
             "node" | "git" | "npm" | "pnpm" | "yarn" | "bun" => {
                 which::which_in(program, Some(case_path), PathBuf::from("."))
                     .map_err(|e| format!("`{program}` not found on the case PATH: {e}"))
@@ -309,6 +304,24 @@ impl FlavorRuntime {
             other => Err(format!(
                 "step program `{other}` is not allowed; use a `vpt` subcommand instead"
             )),
+        }
+    }
+
+    /// Looks a tool up directly in the flavor bin dir.
+    fn bin_dir_tool(&self, program: &str) -> Result<PathBuf, String> {
+        if cfg!(windows) {
+            // Installed as either .exe or .cmd; try both.
+            ["exe", "cmd"]
+                .iter()
+                .map(|ext| self.bin_dir.join(format!("{program}.{ext}")))
+                .find(|p| p.is_file())
+                .ok_or_else(|| format!("`{program}` is not available in this flavor"))
+        } else {
+            let p = self.bin_dir.join(program);
+            if !p.is_file() && !p.is_symlink() {
+                return Err(format!("`{program}` is not available in this flavor"));
+            }
+            Ok(p)
         }
     }
 }

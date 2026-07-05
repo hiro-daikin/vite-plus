@@ -82,6 +82,18 @@ describe('translateCommand', () => {
     expect(isTodo(translateCommand('PATH=$PATH vp check', ctx()))).toBe(true);
   });
 
+  it('marks only the line-final step continue-on-failure', () => {
+    // Legacy lines were independent; && within a line short-circuited.
+    const steps = translateCommand('vp add x && cat package.json', ctx());
+    expect(steps).toHaveLength(2);
+    expect(steps[0].continueOnFailure).toBeUndefined();
+    expect(steps[1].continueOnFailure).toBe(true);
+  });
+
+  it('TODOs ls flags that list-dir does not replicate', () => {
+    expect(isTodo(translateCommand('ls -la node_modules', ctx()))).toBe(true);
+  });
+
   it('turns leading cd chains into step cwd', () => {
     const steps = translateCommand('cd packages/web && vp run build', ctx());
     expect(steps).toHaveLength(1);

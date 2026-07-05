@@ -97,6 +97,9 @@ A step is a bare argv array or a table:
   timeout = 120000,           # ms, default 50s
   snapshot = false,           # omit the screen while the step succeeds
                               #   (failures always keep their output)
+  continue-on-failure = true, # a failing step normally stops the case
+                              #   (shell-like &&); this lets later steps
+                              #   inspect post-failure state
   tty = false,                # piped stdio instead of a PTY (non-TTY tests)
   interactions = [ ... ] }
 ```

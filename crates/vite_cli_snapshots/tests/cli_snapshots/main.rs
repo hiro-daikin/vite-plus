@@ -86,6 +86,10 @@ struct StepConfig {
     /// that specifically assert non-TTY behaviour. Interactions require a PTY.
     #[serde(default = "default_true")]
     tty: bool,
+    /// By default a failing step stops the case (shell-like `&&` semantics);
+    /// set true when later steps deliberately inspect post-failure state.
+    #[serde(default, rename = "continue-on-failure")]
+    continue_on_failure: bool,
 }
 
 impl Step {
@@ -186,6 +190,13 @@ impl Step {
         match self {
             Self::Detailed(config) => config.tty,
             Self::Simple(_) => true,
+        }
+    }
+
+    const fn continue_on_failure(&self) -> bool {
+        match self {
+            Self::Detailed(config) => config.continue_on_failure,
+            Self::Simple(_) => false,
         }
     }
 }
@@ -650,7 +661,7 @@ fn run_case(
     }
 
     let mut timeout_error: Option<String> = None;
-    for step in &case.steps {
+    for (step_index, step) in case.steps.iter().enumerate() {
         let argv = step.argv();
         assert!(!argv.is_empty(), "step argv must not be empty");
 
@@ -827,6 +838,15 @@ fn run_case(
                 !step.formatted_snapshot(),
             );
             doc.push_str(&redacted);
+        }
+
+        // Shell-like `&&` semantics: a failing step stops the case unless it
+        // opts out, so later steps never bless output from a broken setup.
+        if !succeeded && !step.continue_on_failure() {
+            if step_index + 1 < case.steps.len() {
+                doc.push_str("\n*(remaining steps skipped: step failed)*\n");
+            }
+            break;
         }
     }
 

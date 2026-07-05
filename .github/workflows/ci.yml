@@ -11,8 +11,13 @@ on:
   push:
     branches:
       - main
-    paths-ignore:
-      - '**/*.md'
+    # `paths` with negations instead of paths-ignore: PTY snapshot baselines
+    # are .md files (crates/vite_cli_snapshots/**/snapshots/*.md) and a
+    # baseline-only push must still run CI. Later patterns win.
+    paths:
+      - '**'
+      - '!**/*.md'
+      - 'crates/vite_cli_snapshots/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}

@@ -46,6 +46,16 @@ fn masks_only_v_prefixed_versions() {
 }
 
 #[test]
+fn masks_bare_runtime_tool_versions_by_name_context() {
+    // vp create prints these without the v prefix.
+    let input = "Node 24.18.0  pnpm 10.34.4 (agent npm/11.4.2)\n".to_owned();
+    assert_eq!(
+        redact_output(input, &[], true),
+        "Node <version>  pnpm <version> (agent npm/<version>)\n"
+    );
+}
+
+#[test]
 fn replaces_paths_with_labels() {
     let input = "built /tmp/stage-1/dist in 3ms\n".to_owned();
     assert_eq!(

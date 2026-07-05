@@ -25,6 +25,7 @@ interface NewStep {
   comment?: string;
   cwd?: string;
   envs?: [string, string][];
+  continueOnFailure?: boolean;
 }
 
 /** New-harness fixture/case names allow only `[A-Za-z0-9_]`. */
@@ -282,6 +283,9 @@ function translateSimple(command: string, ctx: TranslationContext): NewStep | nu
       } else {
         return todo('unsupported chmod invocation');
       }
+    } else if (program === 'ls' && args.some((a) => a.startsWith('-'))) {
+      // ls flags (-a, -l, ...) change semantics list-dir does not replicate.
+      return todo('ls flags need hand conversion');
     } else if (program in COREUTILS_MAP) {
       step = { argv: ['vpt', COREUTILS_MAP[program], ...args.filter((a) => !a.startsWith('-'))] };
     } else {
@@ -348,6 +352,7 @@ function translateCommand(raw: string, ctx: TranslationContext): NewStep[] {
       if (comment) {
         step.comment = comment;
       }
+      step.continueOnFailure = true;
       ctx.notes.push(`folded \`&& echo\` into stat-file assertion: \`${command}\``);
       return [step];
     }
@@ -378,6 +383,13 @@ function translateCommand(raw: string, ctx: TranslationContext): NewStep[] {
   if (comment && steps.length > 0) {
     steps[0].comment = steps[0].comment ? `${comment}; ${steps[0].comment}` : comment;
   }
+  // Legacy command LINES were independent (a failure did not stop the next
+  // line), while `&&` within a line short-circuited. The harness stops on
+  // failure by default, so only the line-final step opts back out; chain-
+  // internal failures still stop, exactly like the shell did.
+  if (steps.length > 0) {
+    steps[steps.length - 1].continueOnFailure = true;
+  }
   return steps;
 }
 
@@ -394,6 +406,7 @@ function emitStep(step: NewStep, extra: { timeout?: number; snapshot?: boolean }
     step.comment === undefined &&
     step.cwd === undefined &&
     step.envs === undefined &&
+    step.continueOnFailure !== true &&
     extra.timeout === undefined &&
     extra.snapshot === undefined;
   const argv = `[${step.argv.map(tomlString).join(', ')}]`;
@@ -416,6 +429,9 @@ function emitStep(step: NewStep, extra: { timeout?: number; snapshot?: boolean }
   }
   if (extra.snapshot !== undefined) {
     fields.push(`snapshot = ${String(extra.snapshot)}`);
+  }
+  if (step.continueOnFailure === true) {
+    fields.push('continue-on-failure = true');
   }
   return `  { ${fields.join(', ')} },`;
 }

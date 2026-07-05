@@ -18,6 +18,7 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let mut dir: Option<&str> = None;
     let mut ext: Option<&str> = None;
     let mut recursive = false;
+    let mut all = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -26,12 +27,13 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 ext = Some(args.get(i).ok_or("--ext requires a value")?.as_str());
             }
             "--recursive" => recursive = true,
+            "--all" => all = true,
             other if dir.is_none() => dir = Some(other),
             other => return Err(format!("unexpected argument: {other}").into()),
         }
         i += 1;
     }
-    let dir = dir.ok_or("Usage: vpt list-dir <dir> [--ext <suffix>] [--recursive]")?;
+    let dir = dir.ok_or("Usage: vpt list-dir <dir> [--ext <suffix>] [--recursive] [--all]")?;
 
     // Like `ls <file>`, a file target prints its own name; legacy fixtures
     // use that form as an existence assertion.
@@ -42,7 +44,7 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let mut names: Vec<String> = Vec::new();
-    collect(path, ext, recursive, &mut names)?;
+    collect(path, ext, recursive, all, &mut names)?;
     names.sort();
     for name in names {
         println!("{name}");
@@ -57,15 +59,22 @@ fn collect(
     dir: &std::path::Path,
     ext: Option<&str>,
     recursive: bool,
+    all: bool,
     names: &mut Vec<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
-        if recursive && entry.file_type()?.is_dir() {
-            collect(&entry.path(), ext, recursive, names)?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        // Plain ls hides dot entries; --all shows them. Keeping them hidden
+        // by default also keeps snapshots free of package-manager internals
+        // like .pnpm.
+        if !all && name.starts_with('.') {
             continue;
         }
-        let name = entry.file_name().to_string_lossy().into_owned();
+        if recursive && entry.file_type()?.is_dir() {
+            collect(&entry.path(), ext, recursive, all, &mut *names)?;
+            continue;
+        }
         if let Some(suffix) = ext
             && !name.ends_with(suffix)
         {
