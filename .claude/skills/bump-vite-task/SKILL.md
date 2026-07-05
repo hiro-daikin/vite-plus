@@ -1,6 +1,6 @@
 ---
 name: bump-vite-task
-description: Bump vite-task git dependency to the latest main commit. Use when you need to update the vite-task crates (fspy, pty_terminal_test, pty_terminal_test_client, snapshot_test, vite_path, vite_powershell, vite_str, vite_task, vite_workspace) in vite-plus.
+description: Bump vite-task git dependency to the latest main commit. Use when you need to update the vite-task git-dependency crates (vite_task, fspy, pty_terminal_test, and friends; the authoritative set lives in Cargo.toml) in vite-plus.
 allowed-tools: Read, Grep, Glob, Edit, Bash, Agent, WebFetch
 ---
 
@@ -20,7 +20,7 @@ Update the vite-task git dependency in `Cargo.toml` to the latest commit on the 
 
 ### 2. Update Cargo.toml
 
-- Replace **all** occurrences of the old commit hash with the new one in `Cargo.toml`. As of 2026-07 there are 9 crate entries sharing the vite-task revision (`fspy`, `pty_terminal_test`, `pty_terminal_test_client`, `snapshot_test`, `vite_path`, `vite_powershell`, `vite_str`, `vite_task`, `vite_workspace`); verify with the grep from step 1 rather than counting on this list.
+- Replace **all** occurrences of the old commit hash with the new one in `Cargo.toml`. The set of crates sharing the vite-task revision changes over time; the grep from step 1 is the authoritative list, so update every entry it returns.
 - The commented `[patch."https://github.com/voidzero-dev/vite-task.git"]` section near the bottom of `Cargo.toml` mirrors the same crates for local vite-task development; keep it in sync when crates are added or removed (a plain rev bump does not touch it).
 
 ### 3. Ensure upstream dependencies are cloned
