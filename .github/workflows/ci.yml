@@ -1012,8 +1012,17 @@ jobs:
       # job, the global flavor reuses the installed release binary via
       # VP_SNAP_GLOBAL_VP (no vite_global_cli compile). Runs after the legacy
       # snap tests so ~/.vite-plus holds a provisioned runtime for seeding.
-      # Once per OS (the suite is not sharded); the Windows leg has no Rust
-      # toolchain and joins via nextest archives as the suite grows.
+      # Once per OS (the suite is not sharded, so other shards would only
+      # duplicate it). Skipped on Windows because this job's Windows leg
+      # intentionally has no Rust toolchain: the repo's Windows CI policy is
+      # to cross-compile on Linux with cargo-xwin and only run prebuilt
+      # artifacts on windows-latest, and `cargo test` here would reintroduce
+      # a cold Rust build on the slowest runner. The harness itself already
+      # cross-compiles clean for Windows (see the `Check Windows target`
+      # step) and the PTY/milestone stack is Windows-proven in vite-task CI;
+      # Windows joins by shipping the cli_snapshots test binary + vpt through
+      # a nextest archive like build-windows-tests, tracked as an RFC
+      # follow-up (rfcs/interactive-snapshot-tests.md, CI section).
       - name: Run PTY snapshot tests (both flavors)
         if: runner.os != 'Windows' && matrix.shard == 1
         run: |
