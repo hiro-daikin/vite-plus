@@ -820,7 +820,10 @@ fn run_case(
 
 fn main() {
     let tmp_dir = tempfile::tempdir().unwrap();
-    let tmp_dir_path: Arc<Path> = Arc::from(tmp_dir.path().canonicalize().unwrap());
+    // dunce, not std: std's canonicalize returns a `\\?\` verbatim path on
+    // Windows, and CMD.EXE (which runs the local flavor's .cmd shims)
+    // rejects verbatim/UNC working directories outright.
+    let tmp_dir_path: Arc<Path> = Arc::from(dunce::canonicalize(tmp_dir.path()).unwrap());
 
     let fixtures_dir = flavor::manifest_dir().join("tests/cli_snapshots/fixtures");
 

@@ -8526,6 +8526,7 @@ dependencies = [
  "cow-utils",
  "cp_r",
  "ctrlc",
+ "dunce",
  "libtest-mimic",
  "pty_terminal_test",
  "pty_terminal_test_client",
