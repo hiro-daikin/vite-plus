@@ -21,9 +21,12 @@ static THREAD_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"\d+ threads").unwrap());
 // Output bytes differ across OSes (line endings, embedded paths), so byte
 // sizes and content-derived asset hashes can never be part of a shared
-// snapshot.
-static SIZE_RE: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r"\b\d+(\.\d+)?\s?(B|kB|KB|KiB|MB|MiB|GB|GiB)\b").unwrap());
+// snapshot. The unit is kept ("<size> kB"): it only changes when content
+// crosses a magnitude boundary, which is real signal. Durations stay fully
+// masked instead, because their unit flips with timing (999ms vs 1.00s).
+static SIZE_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"\b\d+(?:\.\d+)?(\s?)(B|kB|KB|KiB|MB|MiB|GB|GiB)\b").unwrap()
+});
 static ASSET_HASH_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"-([A-Za-z0-9_-]{8})\.(js|mjs|cjs|css)\b").unwrap());
 static NODE_WARNING_RE: LazyLock<regex::Regex> =
@@ -134,8 +137,8 @@ pub fn redact_output(mut output: String, paths: &[(&str, &'static str)]) -> Stri
     // Redact thread counts like "16 threads" to "<n> threads"
     output = THREAD_RE.replace_all(&output, "<n> threads").into_owned();
 
-    // Redact byte sizes like "0.12 kB" to "<size>"
-    output = SIZE_RE.replace_all(&output, "<size>").into_owned();
+    // Redact byte-size numbers like "0.12 kB" to "<size> kB" (unit kept)
+    output = SIZE_RE.replace_all(&output, "<size>${1}${2}").into_owned();
 
     // Redact content-hash suffixes in emitted asset names
     // (`index-Dra_-aT4.js` to `index-<hash>.js`). Requires a digit or an

@@ -19,7 +19,7 @@ dist/assets/app.js
 sizes and hash suffixes are masked
 
 ```
-dist/assets/index-<hash>.js  <size> / gzip: <size> / total <size>
+dist/assets/index-<hash>.js  <size> kB / gzip: <size> kB / total <size> MB
 ```
 
 ## `vpt print 'keep vite-tsconfig.js and https://viteplus.dev/guide/ intact'`

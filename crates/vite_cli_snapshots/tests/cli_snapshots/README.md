@@ -163,9 +163,10 @@ interactively by default, which is the point. `seed-runtime = true`
 `VP_HOME` so commands do not download ~50MB per case.
 
 Snapshots are plain-text screen grids: styling is flattened, and redaction
-masks paths, durations, versions, UUIDs, thread counts, byte sizes, and
-content-hash asset suffixes (see `redact.rs`; sizes and hashes because
-output bytes differ across OSes). If a case produces nondeterministic
+masks paths, durations, versions, UUIDs, thread counts, byte-size numbers
+(units kept: `<size> kB`), and content-hash asset suffixes (see
+`redact.rs`; sizes and hashes because output bytes differ across OSes). If
+a case produces nondeterministic
 output, fix it with a milestone or a redaction rule; never rerun until
 green. Set
 `formatted-snapshot = true` on a step only when the test is about colors.

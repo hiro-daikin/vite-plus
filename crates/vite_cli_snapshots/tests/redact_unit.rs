@@ -25,13 +25,13 @@ fn keeps_meaningless_trim_a_noop_for_clean_screens() {
 }
 
 #[test]
-fn masks_sizes_and_asset_hashes_but_not_plain_stems() {
-    let input = "dist/assets/index-Dra_-aT4.js  0.71 kB | gzip: 0.40 kB\nkeep vite-tsconfig.js\n"
+fn masks_size_numbers_keeping_units_and_spares_plain_stems() {
+    let input = "dist/assets/index-Dra_-aT4.js  0.71 kB | gzip: 0.40 kB, 1MB total\nkeep vite-tsconfig.js\n"
         .to_owned();
     let redacted = redact_output(input, &[]);
     assert_eq!(
         redacted,
-        "dist/assets/index-<hash>.js  <size> | gzip: <size>\nkeep vite-tsconfig.js\n"
+        "dist/assets/index-<hash>.js  <size> kB | gzip: <size> kB, <size>MB total\nkeep vite-tsconfig.js\n"
     );
 }
 
