@@ -97,8 +97,34 @@ fn local_cli_bin_dir() -> Result<PathBuf, String> {
     Ok(bin_dir)
 }
 
-fn vpt_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_vpt"))
+/// Resolves the `vpt` helper binary. The runtime env var wins: nextest
+/// rewrites `CARGO_BIN_EXE_vpt` when running a relocated archive
+/// (`--workspace-remap`), where the compile-time path is a build-machine
+/// path that no longer exists. Falls back to the compile-time value (plain
+/// `cargo test`), then to a sibling of the test executable.
+fn vpt_path() -> Result<PathBuf, String> {
+    if let Some(vpt) = std::env::var_os("CARGO_BIN_EXE_vpt") {
+        let vpt = PathBuf::from(vpt);
+        if vpt.is_file() {
+            return Ok(vpt);
+        }
+    }
+    let compile_time = PathBuf::from(env!("CARGO_BIN_EXE_vpt"));
+    if compile_time.is_file() {
+        return Ok(compile_time);
+    }
+    let exe = std::env::current_exe().map_err(|e| format!("current_exe failed: {e}"))?;
+    let name = format!("vpt{}", std::env::consts::EXE_SUFFIX);
+    let deps_dir = exe.parent().ok_or("test executable has no parent dir")?;
+    for dir in [deps_dir, deps_dir.parent().unwrap_or(deps_dir)] {
+        let candidate = dir.join(&name);
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+    Err("`vpt` binary not found (checked CARGO_BIN_EXE_vpt, the compile-time \
+         path, and next to the test executable)"
+        .to_owned())
 }
 
 /// Directory holding an already-provisioned managed JS runtime that each
@@ -189,7 +215,7 @@ pub fn provision(flavor: Flavor, run_root: &Path) -> Result<FlavorRuntime, Strin
             None
         }
     };
-    install_tool(&bin_dir, "vpt", &vpt_path())?;
+    install_tool(&bin_dir, "vpt", &vpt_path()?)?;
 
     let path_env = compose_path_env(&bin_dir, &node_dir);
     Ok(FlavorRuntime { bin_dir, node_dir, js_scripts_dir, path_env })

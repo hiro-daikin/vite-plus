@@ -207,6 +207,25 @@ jobs:
           path: windows-tests.tar.zst
           retention-days: 7
 
+      # Separate archive for the PTY snapshot harness (excluded from the
+      # unit-test archive above): its suite needs vp, node, and a built
+      # packages/cli/dist at runtime, which only cli-snapshot-test-windows
+      # provides. The archive carries the cli_snapshots test binary plus the
+      # vpt helper; nextest rewrites CARGO_MANIFEST_DIR/CARGO_BIN_EXE_vpt at
+      # run time so the relocated binaries find fixtures and helpers.
+      - name: Build snapshot test archive
+        run: |
+          eval "$(cargo xwin env --target x86_64-pc-windows-msvc | grep '^export ')"
+          unset RUSTFLAGS
+          cargo nextest archive -p vite_cli_snapshots \
+            --target x86_64-pc-windows-msvc --archive-file windows-snapshot-tests.tar.zst
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-snapshot-test-archive
+          path: windows-snapshot-tests.tar.zst
+          retention-days: 7
+
   test-windows:
     needs: build-windows-tests
     name: Test (Windows)
@@ -1014,15 +1033,10 @@ jobs:
       # snap tests so ~/.vite-plus holds a provisioned runtime for seeding.
       # Once per OS (the suite is not sharded, so other shards would only
       # duplicate it). Skipped on Windows because this job's Windows leg
-      # intentionally has no Rust toolchain: the repo's Windows CI policy is
-      # to cross-compile on Linux with cargo-xwin and only run prebuilt
-      # artifacts on windows-latest, and `cargo test` here would reintroduce
-      # a cold Rust build on the slowest runner. The harness itself already
-      # cross-compiles clean for Windows (see the `Check Windows target`
-      # step) and the PTY/milestone stack is Windows-proven in vite-task CI;
-      # Windows joins by shipping the cli_snapshots test binary + vpt through
-      # a nextest archive like build-windows-tests, tracked as an RFC
-      # follow-up (rfcs/interactive-snapshot-tests.md, CI section).
+      # intentionally has no Rust toolchain (Windows CI policy: cross-compile
+      # on Linux with cargo-xwin, run prebuilt artifacts on windows-latest);
+      # Windows runs the suite in the dedicated cli-snapshot-test-windows job
+      # via the cross-compiled archive from build-windows-tests.
       - name: Run PTY snapshot tests (both flavors)
         if: runner.os != 'Windows' && matrix.shard == 1
         run: |
@@ -1031,6 +1045,95 @@ jobs:
           cargo test -p vite_cli_snapshots --test cli_snapshots
         env:
           RUST_BACKTRACE: '1'
+
+  # Runs the PTY snapshot harness (crates/vite_cli_snapshots) on Windows with
+  # BOTH vp flavors, without a Rust toolchain on the runner: the test binary
+  # and vpt arrive cross-compiled in the nextest archive from
+  # build-windows-tests, the global vp comes prebuilt from build-windows-cli,
+  # and the JS CLI is built here (skip-native) for the local flavor.
+  cli-snapshot-test-windows:
+    name: CLI snapshot test (Windows)
+    needs:
+      - download-previous-rolldown-binaries
+      - build-windows-cli
+      - build-windows-tests
+    runs-on: windows-latest
+    steps:
+      - uses: taiki-e/checkout-action@7d1e50e93dc4fb3bba58f85018fadf77898aee8b # v1.4.2
+      - uses: ./.github/actions/clone
+
+      # Same Dev Drive TEMP routing as cli-snap-test: staged fixture
+      # workspaces live under os.tmpdir() and must resolve pnpm junction
+      # reparse points cleanly (see that job for the full story).
+      - name: Setup Dev Drive
+        uses: samypr100/setup-dev-drive@30f0f98ae5636b2b6501e181dfb3631b9974818d # v4.0.0
+        with:
+          drive-size: 12GB
+          drive-format: ReFS
+          env-mapping: |
+            TEMP,{{ DEV_DRIVE }}/Temp
+            TMP,{{ DEV_DRIVE }}/Temp
+
+      - name: Create TEMP/TMP on Dev Drive
+        shell: bash
+        run: mkdir -p "$TEMP" "$TMP"
+
+      - uses: oxc-project/setup-node@4c588e9266bd930b6ddc34307df0659ed511d187 # v1.3.1
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: rolldown-binaries
+          path: ./rolldown/packages/rolldown/src
+          merge-multiple: true
+
+      # See the cli-e2e-test job for details on the prebuilt binaries.
+      - name: Download prebuilt Windows binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: windows-cli-binaries
+
+      - name: Build with upstream
+        uses: ./.github/actions/build-upstream
+        with:
+          target: x86_64-pc-windows-msvc
+          skip-native: true
+
+      - name: Install Global CLI vp
+        shell: bash
+        run: pnpm bootstrap-cli:ci
+
+      # Provision the managed runtime once into the real home so cases can
+      # seed from it (seed-runtime) instead of each downloading ~50MB.
+      # Best-effort: without a seed, cases that need the runtime download it
+      # themselves.
+      - name: Prewarm managed runtime
+        shell: bash
+        run: |
+          "$USERPROFILE/.vite-plus/bin/vp.exe" node --version \
+            || echo "prewarm failed; cases will download the runtime on demand"
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: windows-snapshot-test-archive
+
+      - uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2.81.10
+        with:
+          tool: cargo-nextest
+
+      # `cargo-nextest` is invoked directly so the job never depends on the
+      # runner's Rust toolchain. --workspace-remap makes nextest rewrite
+      # CARGO_MANIFEST_DIR and CARGO_BIN_EXE_vpt to this checkout, which is
+      # how the relocated test binary finds fixtures and helpers.
+      - name: Run PTY snapshot tests
+        shell: bash
+        run: |
+          export VP_SNAP_GLOBAL_VP="$USERPROFILE/.vite-plus/bin/vp.exe"
+          export VP_SNAP_JS_RUNTIME_DIR="$USERPROFILE/.vite-plus/js_runtime"
+          cargo-nextest nextest run --archive-file windows-snapshot-tests.tar.zst --workspace-remap .
+        env:
+          RUST_BACKTRACE: '1'
+          # Keep Windows env parity with the `test` recipe in justfile.
+          __COMPAT_LAYER: RunAsInvoker
 
   cli-e2e-test-musl:
     name: CLI E2E test (Linux x64 musl)
@@ -1316,6 +1419,7 @@ jobs:
       - cli-e2e-test
       - cli-e2e-test-musl
       - cli-snap-test
+      - cli-snapshot-test-windows
       # Skipped on unlabeled PRs; counted on push-to-main and labeled PRs.
       # `contains(needs.*.result, 'failure')` ignores "skipped" results.
       - install-e2e-test-sfw
