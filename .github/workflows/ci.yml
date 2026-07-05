@@ -127,9 +127,10 @@ jobs:
 
       - run: just test
 
-      # PTY snapshot harness (crates/vite_cli_snapshots). Local-flavor cases
-      # need a built packages/cli dist, which this job does not produce; they
-      # join CI when the old snap-test job is replaced during migration.
+      # PTY snapshot harness (crates/vite_cli_snapshots), fast global-only
+      # leg: this job has a Rust toolchain but no built packages/cli dist, so
+      # local-flavor cases cannot run here. The full both-flavor run lives in
+      # the cli-snap-test job, which builds the JS CLI.
       - name: CLI snapshot tests (global flavor)
         run: just snapshot-test
         env:
@@ -1003,6 +1004,22 @@ jobs:
           bash .github/scripts/retry-failed-snap-tests.sh
         env:
           RUST_MIN_STACK: 8388608
+
+      # PTY snapshot harness (crates/vite_cli_snapshots), full run with BOTH
+      # vp flavors: the local flavor uses the packages/cli build from this
+      # job, the global flavor reuses the installed release binary via
+      # VP_SNAP_GLOBAL_VP (no vite_global_cli compile). Runs after the legacy
+      # snap tests so ~/.vite-plus holds a provisioned runtime for seeding.
+      # Once per OS (the suite is not sharded); the Windows leg has no Rust
+      # toolchain and joins via nextest archives as the suite grows.
+      - name: Run PTY snapshot tests (both flavors)
+        if: runner.os != 'Windows' && matrix.shard == 1
+        run: |
+          VP_SNAP_GLOBAL_VP="$HOME/.vite-plus/bin/vp" \
+          VP_SNAP_JS_RUNTIME_DIR="$HOME/.vite-plus/js_runtime" \
+          cargo test -p vite_cli_snapshots --test cli_snapshots
+        env:
+          RUST_BACKTRACE: '1'
 
   cli-e2e-test-musl:
     name: CLI E2E test (Linux x64 musl)

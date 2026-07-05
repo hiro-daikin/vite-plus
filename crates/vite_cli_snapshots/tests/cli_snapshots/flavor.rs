@@ -51,6 +51,16 @@ pub fn repo_root() -> PathBuf {
 /// missing binary fails fast with that instruction instead of silently
 /// testing a stale build.
 fn global_vp_path() -> Result<PathBuf, String> {
+    // `VP_SNAP_GLOBAL_VP` points at an already-built binary (CI uses the
+    // release binary that `bootstrap-cli` installed), skipping the cargo
+    // build of vite_global_cli that `just snapshot-test` performs.
+    if let Some(vp) = std::env::var_os("VP_SNAP_GLOBAL_VP") {
+        let vp = PathBuf::from(vp);
+        if vp.is_file() {
+            return Ok(vp);
+        }
+        return Err(format!("VP_SNAP_GLOBAL_VP is set but {} does not exist", vp.display()));
+    }
     let exe = std::env::current_exe().map_err(|e| format!("current_exe failed: {e}"))?;
     let deps_dir = exe.parent().ok_or("test executable has no parent dir")?;
     let name = format!("vp{}", std::env::consts::EXE_SUFFIX);
