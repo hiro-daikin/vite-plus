@@ -84,7 +84,6 @@ vite-task changes often affect CLI output, which means snapshot tests need updat
 
 ### 8. Create the PR
 
-- Use the Graphite CLI: `gt create <branch> -m "..."` (or `gt modify -c` for follow-ups) and `gt submit --draft --no-edit --no-interactive`.
 - Commit message: `chore: bump vite-task to <short-hash>`
 - PR title: `chore: bump vite-task to <short-hash>`
 - PR body: Link to vite-task CHANGELOG.md diff between old and new commits:
