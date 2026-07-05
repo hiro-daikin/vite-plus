@@ -5,7 +5,28 @@
 //! stdout/stderr interleaving, so every rule here should correspond to a real
 //! source of nondeterminism (paths, durations, versions, machine parallelism).
 
-use std::borrow::Cow;
+use std::{borrow::Cow, sync::LazyLock};
+
+// Compiled once per run: redaction runs on every snapshotted step, and regex
+// compilation dominates matching cost at that frequency.
+static UUID_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}").unwrap()
+});
+static DURATION_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"\b\d+(\.\d+)?(ns|µs|ms|s)\b").unwrap());
+static VERSION_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"\bv?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?\b").unwrap()
+});
+static THREAD_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"\d+ threads").unwrap());
+static NODE_WARNING_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"(?m)^\(node:\d+\) ExperimentalWarning:.*\n?").unwrap());
+static NODE_TRACE_WARNING_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?m)^\(Use `node --trace-warnings \.\.\.` to show where the warning was created\)\n?",
+    )
+    .unwrap()
+});
 
 #[expect(
     clippy::disallowed_types,
@@ -72,33 +93,21 @@ pub fn redact_output(mut output: String, paths: &[(&str, &'static str)]) -> Stri
     redact_string(&mut output, &borrowed);
 
     // Redact UUIDs to "<uuid>"
-    let uuid_regex =
-        regex::Regex::new(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}").unwrap();
-    output = uuid_regex.replace_all(&output, "<uuid>").into_owned();
+    output = UUID_RE.replace_all(&output, "<uuid>").into_owned();
 
     // Redact durations like "0ns", "123ms" or "1.23s" to "<duration>".
     // Runs before version redaction so "1.23s" never half-matches as a version.
-    let duration_regex = regex::Regex::new(r"\b\d+(\.\d+)?(ns|µs|ms|s)\b").unwrap();
-    output = duration_regex.replace_all(&output, "<duration>").into_owned();
+    output = DURATION_RE.replace_all(&output, "<duration>").into_owned();
 
     // Redact semver-shaped versions (bundled tool versions, Node versions).
-    let version_regex =
-        regex::Regex::new(r"\bv?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?\b").unwrap();
-    output = version_regex.replace_all(&output, "<version>").into_owned();
+    output = VERSION_RE.replace_all(&output, "<version>").into_owned();
 
     // Redact thread counts like "16 threads" to "<n> threads"
-    let thread_regex = regex::Regex::new(r"\d+ threads").unwrap();
-    output = thread_regex.replace_all(&output, "<n> threads").into_owned();
+    output = THREAD_RE.replace_all(&output, "<n> threads").into_owned();
 
     // Remove Node.js experimental warnings (e.g., Type Stripping warnings)
-    let node_warning_regex =
-        regex::Regex::new(r"(?m)^\(node:\d+\) ExperimentalWarning:.*\n?").unwrap();
-    output = node_warning_regex.replace_all(&output, "").into_owned();
-    let node_trace_warning_regex = regex::Regex::new(
-        r"(?m)^\(Use `node --trace-warnings \.\.\.` to show where the warning was created\)\n?",
-    )
-    .unwrap();
-    output = node_trace_warning_regex.replace_all(&output, "").into_owned();
+    output = NODE_WARNING_RE.replace_all(&output, "").into_owned();
+    output = NODE_TRACE_WARNING_RE.replace_all(&output, "").into_owned();
 
     // Remove ^C echo that Unix terminal drivers emit when ETX (0x03) is written
     // to the PTY. Windows ConPTY does not echo it.
@@ -111,8 +120,11 @@ pub fn redact_output(mut output: String, paths: &[(&str, &'static str)]) -> Stri
 
     // Sort consecutive diagnostic blocks to handle non-deterministic tool output
     // (e.g., oxlint reports warnings in arbitrary order due to multi-threading).
-    // Each block starts with "  ! " and ends at the next empty line.
-    output = sort_diagnostic_blocks(&output);
+    // Each block starts with "  ! " and ends at the next empty line. Most
+    // screens have none, so skip the split/rejoin allocation entirely then.
+    if output.contains("  ! ") {
+        output = sort_diagnostic_blocks(&output);
+    }
 
     output
 }
@@ -148,12 +160,12 @@ fn sort_diagnostic_blocks(output: &str) -> String {
 
             blocks.sort();
 
-            for (j, block) in blocks.iter().enumerate() {
+            // Restore an empty-line separator after every block (`i` never
+            // exceeds parts.len(), so the upstream guard here was always
+            // true; keep the behavior, drop the misleading condition).
+            for block in &blocks {
                 result.extend_from_slice(block);
-                // Restore empty line separators (between blocks + trailing)
-                if j < blocks.len() - 1 || i <= parts.len() {
-                    result.push("");
-                }
+                result.push("");
             }
         } else {
             result.push(parts[i]);

@@ -14,33 +14,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-interface OldCommand {
-  command: string;
-  ignoreOutput?: boolean;
-  timeout?: number;
-}
-
-interface OldPlatformFilter {
-  os: string;
-  libc?: string;
-}
-
-interface OldSteps {
-  ignoredPlatforms?: (string | OldPlatformFilter)[];
-  env?: Record<string, string>;
-  commands: (string | OldCommand)[];
-  localVitePlusPackages?: boolean;
-  linkCheckoutPackages?: boolean;
-  after?: string[];
-  serial?: boolean;
-}
+// The legacy steps.json schema comes straight from the old runner, so the
+// migrator can never drift from what actually ran.
+import type { Steps as OldSteps } from './snap-test.ts';
 
 interface NewStep {
   argv: string[];
   comment?: string;
   envs?: [string, string][];
-  timeout?: number;
-  snapshot?: boolean;
 }
 
 interface CaseReport {
@@ -178,10 +159,22 @@ const COREUTILS_MAP: Record<string, string> = {
   'json-edit': 'json-edit',
 };
 
+/** Programs whose name and args map to the identically-named vpt subcommand. */
+const VPT_VERBATIM = new Set(['mkdir', 'rm', 'cp']);
+
 interface TranslationContext {
   todos: string[];
   notes: string[];
   localRegistry: boolean;
+}
+
+/** Records a hand-conversion TODO and returns the placeholder step for it. */
+function makeTodo(ctx: TranslationContext, reason: string, command: string): NewStep {
+  ctx.todos.push(`${reason}: \`${command}\``);
+  return {
+    argv: ['vpt', 'print', 'TODO(migrate)'],
+    comment: `TODO(migrate) ${reason}: ${command}`,
+  };
 }
 
 /**
@@ -189,33 +182,23 @@ interface TranslationContext {
  * a TODO step preserving the raw text for hand conversion.
  */
 function translateSimple(command: string, ctx: TranslationContext): NewStep | null {
-  const todo = (reason: string): NewStep => {
-    ctx.todos.push(`${reason}: \`${command}\``);
-    return {
-      argv: ['vpt', 'print', 'TODO(migrate)'],
-      comment: `TODO(migrate) ${reason}: ${command}`,
-    };
-  };
+  const todo = (reason: string): NewStep => makeTodo(ctx, reason, command);
 
-  if (/[|;`]|\$\(|<|>>/.test(command)) {
-    // Redirects handled below for echo/printf only; pipes/subshells never.
-    const redirect = command.match(/^(echo|printf)\s+(.+?)\s*>\s*(\S+)$/);
-    if (redirect) {
-      const contentTokens = tokenize(redirect[2]);
-      if (contentTokens) {
-        return { argv: ['vpt', 'write-file', redirect[3], contentTokens.join(' ')] };
-      }
+  // `echo/printf ... > file` (single `>`, not append) becomes an explicit
+  // write-file; every other operator or redirect form needs hand conversion.
+  const redirect = command.includes('>>')
+    ? null
+    : command.match(/^(echo|printf)\s+(.+?)\s*>\s*(\S+)$/);
+  if (redirect) {
+    const contentTokens = tokenize(redirect[2]);
+    if (contentTokens) {
+      return { argv: ['vpt', 'write-file', redirect[3], contentTokens.join(' ')] };
     }
+  }
+  if (/[|;`]|\$\(|<|>>/.test(command)) {
     return todo('shell operators need hand conversion');
   }
   if (command.includes('>')) {
-    const redirect = command.match(/^(echo|printf)\s+(.+?)\s*>\s*(\S+)$/);
-    if (redirect) {
-      const contentTokens = tokenize(redirect[2]);
-      if (contentTokens) {
-        return { argv: ['vpt', 'write-file', redirect[3], contentTokens.join(' ')] };
-      }
-    }
     return todo('redirect needs hand conversion');
   }
 
@@ -258,12 +241,8 @@ function translateSimple(command: string, ctx: TranslationContext): NewStep | nu
     step = { argv: tokens };
   } else if (program in COREUTILS_MAP) {
     step = { argv: ['vpt', COREUTILS_MAP[program], ...args.filter((a) => !a.startsWith('-'))] };
-  } else if (program === 'mkdir') {
-    step = { argv: ['vpt', 'mkdir', ...args] };
-  } else if (program === 'rm') {
-    step = { argv: ['vpt', 'rm', ...args] };
-  } else if (program === 'cp') {
-    step = { argv: ['vpt', 'cp', ...args] };
+  } else if (VPT_VERBATIM.has(program)) {
+    step = { argv: ['vpt', program, ...args] };
   } else if (program === 'echo') {
     step = { argv: ['vpt', 'print', args.join(' ')] };
   } else if (program === 'test') {
@@ -295,13 +274,7 @@ function translateCommand(raw: string, ctx: TranslationContext): NewStep[] {
     return [];
   }
   if (command.includes('||')) {
-    ctx.todos.push(`\`||\` chain needs hand conversion: \`${command}\``);
-    return [
-      {
-        argv: ['vpt', 'print', 'TODO(migrate)'],
-        comment: `TODO(migrate) \`||\` chain: ${command}`,
-      },
-    ];
+    return [makeTodo(ctx, '`||` chain needs hand conversion', command)];
   }
   const steps: NewStep[] = [];
   const parts = splitOnAndAnd(command);
@@ -340,13 +313,11 @@ function tomlKey(key: string): string {
 }
 
 function emitStep(step: NewStep, extra: { timeout?: number; snapshot?: boolean }): string {
-  const timeout = extra.timeout ?? step.timeout;
-  const snapshot = extra.snapshot ?? step.snapshot;
   const isSimple =
     step.comment === undefined &&
     step.envs === undefined &&
-    timeout === undefined &&
-    snapshot === undefined;
+    extra.timeout === undefined &&
+    extra.snapshot === undefined;
   const argv = `[${step.argv.map(tomlString).join(', ')}]`;
   if (isSimple) {
     return `  ${argv},`;
@@ -359,11 +330,11 @@ function emitStep(step: NewStep, extra: { timeout?: number; snapshot?: boolean }
     const envs = step.envs.map(([k, v]) => `[${tomlString(k)}, ${tomlString(v)}]`).join(', ');
     fields.push(`envs = [${envs}]`);
   }
-  if (timeout !== undefined) {
-    fields.push(`timeout = ${timeout}`);
+  if (extra.timeout !== undefined) {
+    fields.push(`timeout = ${extra.timeout}`);
   }
-  if (snapshot !== undefined) {
-    fields.push(`snapshot = ${String(snapshot)}`);
+  if (extra.snapshot !== undefined) {
+    fields.push(`snapshot = ${String(extra.snapshot)}`);
   }
   return `  { ${fields.join(', ')} },`;
 }

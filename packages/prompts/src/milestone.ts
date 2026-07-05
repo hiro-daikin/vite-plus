@@ -16,8 +16,13 @@ const OSC8_OPEN = '\x1b]8;;';
 const ST = '\x1b\\';
 const ZERO_WIDTH_ANCHOR = '​';
 
+// Cached at module load: the harness sets the env before spawning the CLI,
+// and milestone() runs on every prompt render (every keystroke), so the
+// disabled path must stay a single branch.
+const MILESTONES_ENABLED = process.env.VP_EMIT_MILESTONES === '1';
+
 export function milestonesEnabled(): boolean {
-  return process.env.VP_EMIT_MILESTONES === '1';
+  return MILESTONES_ENABLED;
 }
 
 /**
@@ -26,13 +31,10 @@ export function milestonesEnabled(): boolean {
  * the marker arrives in the output stream together with the render it marks.
  */
 export function milestone(name: string): string {
-  if (!milestonesEnabled()) {
+  if (!MILESTONES_ENABLED) {
     return '';
   }
-  let hex = '';
-  for (const byte of Buffer.from(name, 'utf8')) {
-    hex += byte.toString(16).padStart(2, '0');
-  }
+  const hex = Buffer.from(name, 'utf8').toString('hex');
   return `${OSC8_OPEN}${MILESTONE_URI_PREFIX}${hex}${ST}${ZERO_WIDTH_ANCHOR}${OSC8_OPEN}${ST}`;
 }
 

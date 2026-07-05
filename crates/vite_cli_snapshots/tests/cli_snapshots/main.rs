@@ -600,11 +600,12 @@ fn run_case(
     let case_root = tmpdir.join(format!("{fixture_name}_case_{case_index}_{}", flavor.as_str()));
     let stage = case_root.join("workspace");
     std::fs::create_dir_all(&stage).unwrap();
-    CopyOptions::new().copy_tree(fixture_path, &stage).unwrap();
     // The case definition and recorded snapshots are harness metadata, not
-    // part of the workspace under test.
-    let _ = std::fs::remove_dir_all(stage.join("snapshots"));
-    let _ = std::fs::remove_file(stage.join("snapshots.toml"));
+    // part of the workspace under test, so they are never copied in.
+    CopyOptions::new()
+        .filter(|path, _| Ok(path != Path::new("snapshots") && path != Path::new("snapshots.toml")))
+        .copy_tree(fixture_path, &stage)
+        .unwrap();
 
     let case_home = CaseHome::provision(&case_root, case.seed_runtime);
 
@@ -643,10 +644,18 @@ fn run_case(
         assert!(!argv.is_empty(), "step argv must not be empty");
         let program = runtime.resolve_program(&argv[0])?;
 
-        let mut step_env = case_env.clone();
-        for (k, v) in step.envs() {
-            step_env.insert(k.clone(), v.into());
-        }
+        // Most steps add no env of their own; borrow the case env then.
+        let step_env_override;
+        let step_env: &BTreeMap<String, OsString> = if step.envs().is_empty() {
+            &case_env
+        } else {
+            let mut env = case_env.clone();
+            for (k, v) in step.envs() {
+                env.insert(k.clone(), v.into());
+            }
+            step_env_override = env;
+            &step_env_override
+        };
         let step_cwd = stage.join(step.cwd().unwrap_or(case.cwd.as_str()));
         let timeout = step.timeout();
 
@@ -656,7 +665,7 @@ fn run_case(
                 cmd.arg(arg);
             }
             cmd.env_clear();
-            for (k, v) in &step_env {
+            for (k, v) in step_env {
                 cmd.env(k, v);
             }
             cmd.cwd(&step_cwd);
@@ -745,7 +754,7 @@ fn run_case(
                 step.interactions().is_empty(),
                 "interactions require a PTY; remove `tty = false` or the interactions"
             );
-            let (state, raw) = run_step_piped(&program, &argv[1..], &step_env, &step_cwd, timeout);
+            let (state, raw) = run_step_piped(&program, &argv[1..], step_env, &step_cwd, timeout);
             let mut block = String::new();
             push_fenced_block(&mut block, &raw);
             (state, block)
@@ -813,12 +822,7 @@ fn main() {
     let tmp_dir = tempfile::tempdir().unwrap();
     let tmp_dir_path: Arc<Path> = Arc::from(tmp_dir.path().canonicalize().unwrap());
 
-    // Prefer the runtime env var: cargo sets it for test processes, and
-    // nextest rewrites it when running a relocated archive
-    // (--workspace-remap), where the compile-time path no longer exists.
-    let manifest_dir = std::env::var_os("CARGO_MANIFEST_DIR")
-        .map_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")), PathBuf::from);
-    let fixtures_dir = manifest_dir.join("tests/cli_snapshots/fixtures");
+    let fixtures_dir = flavor::manifest_dir().join("tests/cli_snapshots/fixtures");
 
     let mut fixture_paths = std::fs::read_dir(&fixtures_dir)
         .unwrap_or_else(|e| panic!("failed to read {}: {e}", fixtures_dir.display()))

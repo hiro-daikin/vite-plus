@@ -40,12 +40,32 @@ pub struct FlavorRuntime {
     pub path_env: OsString,
 }
 
+/// The harness crate's manifest dir. The runtime env var wins: cargo sets it
+/// for test processes, and nextest rewrites it when running a relocated
+/// archive (`--workspace-remap`), where the compile-time path is a
+/// build-machine path that no longer exists.
+pub fn manifest_dir() -> PathBuf {
+    std::env::var_os("CARGO_MANIFEST_DIR")
+        .map_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")), PathBuf::from)
+}
+
 pub fn repo_root() -> PathBuf {
-    // Runtime env preferred over the compile-time path for relocated nextest
-    // archives (see main.rs).
-    let manifest_dir = std::env::var_os("CARGO_MANIFEST_DIR")
-        .map_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")), PathBuf::from);
-    manifest_dir.parent().unwrap().parent().unwrap().to_path_buf()
+    manifest_dir().parent().unwrap().parent().unwrap().to_path_buf()
+}
+
+/// Searches for `name` next to the test executable (`target/<profile>/deps/`)
+/// and one directory up (`target/<profile>/`), where cargo puts bin targets
+/// and where nextest extracts archived binaries.
+fn find_beside_test_exe(name: &str) -> Result<Option<PathBuf>, String> {
+    let exe = std::env::current_exe().map_err(|e| format!("current_exe failed: {e}"))?;
+    let deps_dir = exe.parent().ok_or("test executable has no parent dir")?;
+    for dir in [deps_dir, deps_dir.parent().unwrap_or(deps_dir)] {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return Ok(Some(candidate));
+        }
+    }
+    Ok(None)
 }
 
 /// Locates the freshly built global `vp` binary next to this test executable
@@ -64,20 +84,12 @@ fn global_vp_path() -> Result<PathBuf, String> {
         }
         return Err(format!("VP_SNAP_GLOBAL_VP is set but {} does not exist", vp.display()));
     }
-    let exe = std::env::current_exe().map_err(|e| format!("current_exe failed: {e}"))?;
-    let deps_dir = exe.parent().ok_or("test executable has no parent dir")?;
     let name = format!("vp{}", std::env::consts::EXE_SUFFIX);
-    for dir in [deps_dir, deps_dir.parent().unwrap_or(deps_dir)] {
-        let candidate = dir.join(&name);
-        if candidate.is_file() {
-            return Ok(candidate);
-        }
-    }
-    Err(format!(
-        "global `vp` binary not found next to {}; run `just snapshot-test` \
-         (or `cargo build -p vite_global_cli`) first",
-        exe.display()
-    ))
+    find_beside_test_exe(&name)?.ok_or_else(|| {
+        "global `vp` binary not found next to the test executable; run \
+         `just snapshot-test` (or `cargo build -p vite_global_cli`) first"
+            .to_owned()
+    })
 }
 
 /// Locates the local JS CLI bin directory. `VP_SNAP_LOCAL_CLI_BIN_DIR`
@@ -113,18 +125,12 @@ fn vpt_path() -> Result<PathBuf, String> {
     if compile_time.is_file() {
         return Ok(compile_time);
     }
-    let exe = std::env::current_exe().map_err(|e| format!("current_exe failed: {e}"))?;
     let name = format!("vpt{}", std::env::consts::EXE_SUFFIX);
-    let deps_dir = exe.parent().ok_or("test executable has no parent dir")?;
-    for dir in [deps_dir, deps_dir.parent().unwrap_or(deps_dir)] {
-        let candidate = dir.join(&name);
-        if candidate.is_file() {
-            return Ok(candidate);
-        }
-    }
-    Err("`vpt` binary not found (checked CARGO_BIN_EXE_vpt, the compile-time \
+    find_beside_test_exe(&name)?.ok_or_else(|| {
+        "`vpt` binary not found (checked CARGO_BIN_EXE_vpt, the compile-time \
          path, and next to the test executable)"
-        .to_owned())
+            .to_owned()
+    })
 }
 
 /// Directory holding an already-provisioned managed JS runtime that each
