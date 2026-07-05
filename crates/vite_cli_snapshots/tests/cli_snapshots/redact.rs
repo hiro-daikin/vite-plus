@@ -14,8 +14,13 @@ static UUID_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
 });
 static DURATION_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"\b\d+(\.\d+)?(ns|µs|ms|s)\b").unwrap());
+// Only v-prefixed versions are masked: tool and runtime banners all print
+// that form (`vite v7.3.2`, `vp v0.2.2`, `Node.js v24.18.0`) and churn on
+// every dep bump, while bare semver literals (`app-1.0.0.tgz`,
+// `"vitest": "4.0.13"`) are user-controlled values that snapshots must be
+// able to assert.
 static VERSION_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"\bv?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?\b").unwrap()
+    regex::Regex::new(r"\bv\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?\b").unwrap()
 });
 static THREAD_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"\d+ threads").unwrap());

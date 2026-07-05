@@ -36,6 +36,16 @@ fn masks_size_numbers_keeping_units_and_spares_plain_stems() {
 }
 
 #[test]
+fn masks_only_v_prefixed_versions() {
+    let input =
+        "vite v7.3.2 building; wrote app-1.0.0.tgz with \"vitest\": \"4.0.13\"\n".to_owned();
+    assert_eq!(
+        redact_output(input, &[]),
+        "vite <version> building; wrote app-1.0.0.tgz with \"vitest\": \"4.0.13\"\n"
+    );
+}
+
+#[test]
 fn replaces_paths_with_labels() {
     let input = "built /tmp/stage-1/dist in 3ms\n".to_owned();
     assert_eq!(

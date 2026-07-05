@@ -173,6 +173,16 @@ fn install_tool(bin_dir: &Path, name: &str, target: &Path) -> Result<(), String>
     }
 }
 
+/// Best-effort directory link (symlink on Unix, `symlink_dir` on Windows,
+/// where it may require privileges; on failure, resolution falls back to
+/// whatever the fixture vendors itself).
+pub fn link_dir(target: &Path, link: &Path) {
+    #[cfg(unix)]
+    let _ = std::os::unix::fs::symlink(target, link);
+    #[cfg(windows)]
+    let _ = std::os::windows::fs::symlink_dir(target, link);
+}
+
 fn compose_path_env(bin_dir: &Path, node_dir: &Path) -> OsString {
     let mut entries: Vec<PathBuf> = vec![bin_dir.to_path_buf(), node_dir.to_path_buf()];
     if cfg!(windows) {

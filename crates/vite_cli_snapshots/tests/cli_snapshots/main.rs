@@ -643,6 +643,7 @@ fn run_case(
         }
     }
 
+    let mut timeout_error: Option<String> = None;
     for step in &case.steps {
         let argv = step.argv();
         assert!(!argv.is_empty(), "step argv must not be empty");
@@ -777,7 +778,8 @@ fn run_case(
 
         // A hung command must fail the trial in both modes: a timeout can
         // never be recorded or blessed as a baseline, not even with
-        // UPDATE_SNAPSHOTS=1.
+        // UPDATE_SNAPSHOTS=1. The error is deferred (not returned here) so
+        // the case's `after` cleanup still runs first.
         if matches!(termination_state, TerminationState::TimedOut) {
             let redacted = redact_output(
                 raw_output,
@@ -787,10 +789,11 @@ fn run_case(
                     (repo_str.as_str(), "<repo>"),
                 ],
             );
-            return Err(format!(
+            timeout_error = Some(format!(
                 "step `{}` timed out after {timeout:?}; partial output:\n{redacted}",
                 step.display_command_line(&case.cwd),
             ));
+            break;
         }
 
         if let TerminationState::Exited(exit_code) = &termination_state {
@@ -827,6 +830,11 @@ fn run_case(
         }
     }
 
+    // Deferred so the cleanup above always runs, even for hung steps.
+    if let Some(error) = timeout_error {
+        return Err(error);
+    }
+
     snapshots.check_snapshot(snapshot_name, &doc)
 }
 
@@ -836,6 +844,20 @@ fn main() {
     // Windows, and CMD.EXE (which runs the local flavor's .cmd shims)
     // rejects verbatim/UNC working directories outright.
     let tmp_dir_path: Arc<Path> = Arc::from(dunce::canonicalize(tmp_dir.path()).unwrap());
+
+    // Bare `vite-plus` / `@voidzero-dev/vite-plus-core` imports in fixture
+    // configs resolve to the checkout packages via Node's upward walk (the
+    // staged workspaces have no node_modules of their own); the linked
+    // packages' own dependencies then resolve at their real location.
+    // Anything else a fixture imports must be vendored inside the fixture.
+    {
+        let repo_root = flavor::repo_root();
+        let node_modules = tmp_dir_path.join("node_modules");
+        let scoped = node_modules.join("@voidzero-dev");
+        std::fs::create_dir_all(&scoped).unwrap();
+        flavor::link_dir(&repo_root.join("packages/cli"), &node_modules.join("vite-plus"));
+        flavor::link_dir(&repo_root.join("packages/core"), &scoped.join("vite-plus-core"));
+    }
 
     let fixtures_dir = flavor::manifest_dir().join("tests/cli_snapshots/fixtures");
 

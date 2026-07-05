@@ -163,6 +163,12 @@ interactively by default, which is the point. `seed-runtime = true`
 (default) symlinks a provisioned managed Node runtime into the case
 `VP_HOME` so commands do not download ~50MB per case.
 
+Fixture configs may import bare `vite-plus` and
+`@voidzero-dev/vite-plus-core`: the harness links the checkout packages
+into the run root's `node_modules`, where Node's upward walk finds them
+from any staged workspace. Anything else a fixture imports must be
+vendored inside the fixture itself.
+
 Snapshots are plain-text screen grids: styling is flattened, and redaction
 masks paths, durations, versions, UUIDs, thread counts, byte-size numbers
 (units kept: `<size> kB`), and content-hash asset suffixes (see

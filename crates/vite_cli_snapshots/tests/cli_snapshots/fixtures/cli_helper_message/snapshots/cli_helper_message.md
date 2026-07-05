@@ -71,16 +71,16 @@ VITE+ - The Unified Toolchain for the Web
 vp <version>
 
 Local vite-plus:
-  vite-plus  Not found
+  vite-plus  <version>
 
 Tools:
-  vite             Not found
-  rolldown         Not found
-  vitest           Not found
-  oxfmt            Not found
-  oxlint           Not found
-  oxlint-tsgolint  Not found
-  tsdown           Not found
+  vite             <version>
+  rolldown         <version>
+  vitest           <version>
+  oxfmt            <version>
+  oxlint           <version>
+  oxlint-tsgolint  <version>
+  tsdown           <version>
 
 Environment:
   Package manager  Not found
@@ -502,7 +502,7 @@ Usage: vp upgrade [OPTIONS] [VERSION]
 Update vp itself to the latest version
 
 Arguments:
-  [VERSION]  Target version (e.g., "<version>"). Defaults to latest
+  [VERSION]  Target version (e.g., "0.2.0"). Defaults to latest
 
 Options:
   --tag <TAG>            npm dist-tag to install (default: "latest", also: "alpha") [default: latest]
