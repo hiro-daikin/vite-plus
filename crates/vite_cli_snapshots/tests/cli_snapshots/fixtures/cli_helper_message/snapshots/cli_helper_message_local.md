@@ -1,4 +1,12 @@
-> vp -h # show help message
+# cli_helper_message_local
+
+## `vp -h`
+
+show help message
+
+```
+VITE+ - The Unified Toolchain for the Web
+
 Usage: vp <COMMAND>
 
 Core Commands:
@@ -23,10 +31,17 @@ Package Manager Commands:
 
 Options:
   -h, --help  Print help
+```
 
-> vp -V # show version
-vp v<semver>
+## `vp -V`
+
+show version
+
+```
+VITE+ - The Unified Toolchain for the Web
+
+vp <version>
 
 Local vite-plus:
   vite-plus  Not found
-
+```

@@ -4,12 +4,14 @@
  * snapshots.toml), following the mapping in rfcs/interactive-snapshot-tests.md.
  *
  * Usage:
- *   tool migrate-snap-tests packages/cli/snap-tests --vp local [name-filter]
- *   tool migrate-snap-tests packages/cli/snap-tests-global --vp global [name-filter]
+ *   tool migrate-snap-tests packages/cli/snap-tests --vp local [name-filter] [--keep-old]
+ *   tool migrate-snap-tests packages/cli/snap-tests-global --vp global [name-filter] [--keep-old]
  *
- * Old snap.txt files are not converted; record new baselines afterwards with
- * `UPDATE_SNAPSHOTS=1 just snapshot-test <filter>` and review against the old
- * snap.txt before deleting the old case directory.
+ * Successfully converted case directories are removed from the old tree, so
+ * every case lives in exactly one tree (git has the history; --keep-old
+ * defers the removal). Old snap.txt files are not converted; record new
+ * baselines afterwards with `UPDATE_SNAPSHOTS=1 just snapshot-test <filter>`
+ * and review them against the deleted snap.txt in `git diff`.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -28,6 +30,8 @@ interface CaseReport {
   name: string;
   notes: string[];
   todos: string[];
+  /** True when nothing was written (e.g. target fixture already exists). */
+  skipped?: boolean;
 }
 
 const OS_MAP: Record<string, string> = {
@@ -346,6 +350,19 @@ function migrateCase(
   outDir: string,
 ): CaseReport {
   const report: CaseReport = { name: caseName, notes: [], todos: [] };
+
+  // Never clobber an existing fixture: the same case name can exist in both
+  // legacy trees (local and global), and merging those is a hand decision
+  // (usually a second [[case]] or a vp = ["local", "global"] matrix).
+  const targetDir = path.join(outDir, caseName.replaceAll('-', '_'));
+  if (fs.existsSync(targetDir)) {
+    report.todos.push(
+      `target fixture \`${path.basename(targetDir)}\` already exists; case skipped, merge it by hand`,
+    );
+    report.skipped = true;
+    return report;
+  }
+
   const old: OldSteps = JSON.parse(fs.readFileSync(path.join(caseDir, 'steps.json'), 'utf8'));
   const ctx: TranslationContext = {
     todos: report.todos,
@@ -450,12 +467,15 @@ export function migrateSnapTests(): void {
   const args = process.argv.slice(3);
   const positional: string[] = [];
   let flavor: string | undefined;
+  let keepOld = false;
   let outDir = 'crates/vite_cli_snapshots/tests/cli_snapshots/fixtures';
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--vp') {
       flavor = args[++i];
     } else if (args[i] === '--out') {
       outDir = args[++i];
+    } else if (args[i] === '--keep-old') {
+      keepOld = true;
     } else {
       positional.push(args[i]);
     }
@@ -463,7 +483,7 @@ export function migrateSnapTests(): void {
   const [oldDir, nameFilter] = positional;
   if (!oldDir || (flavor !== 'local' && flavor !== 'global')) {
     console.error(
-      'Usage: tool migrate-snap-tests <old-snap-tests-dir> --vp <local|global> [name-filter] [--out <fixtures-dir>]',
+      'Usage: tool migrate-snap-tests <old-snap-tests-dir> --vp <local|global> [name-filter] [--out <fixtures-dir>] [--keep-old]',
     );
     process.exit(1);
   }
@@ -477,7 +497,14 @@ export function migrateSnapTests(): void {
 
   const reports: CaseReport[] = [];
   for (const name of caseDirs) {
-    reports.push(migrateCase(path.join(oldDir, name), name, flavor, outDir));
+    const caseDir = path.join(oldDir, name);
+    const report = migrateCase(caseDir, name, flavor, outDir);
+    reports.push(report);
+    // The case now lives in exactly one tree; git history keeps the original
+    // (and TODO placeholders embed the raw command lines).
+    if (!keepOld && !report.skipped) {
+      fs.rmSync(caseDir, { recursive: true, force: true });
+    }
   }
 
   const reportLines: string[] = [
@@ -485,9 +512,11 @@ export function migrateSnapTests(): void {
     '',
     `Source: \`${oldDir}\` (flavor: ${flavor}), ${reports.length} case(s).`,
     '',
-    'Record baselines with `UPDATE_SNAPSHOTS=1 just snapshot-test <filter>`,',
-    'review each new snapshot against the old snap.txt, then delete the old',
-    'case directories in the same PR.',
+    'Record baselines with `UPDATE_SNAPSHOTS=1 just snapshot-test <filter>`',
+    'and review each new snapshot against the deleted snap.txt in `git diff`.',
+    ...(keepOld
+      ? ['The old case directories were kept (--keep-old); delete them in the same PR.']
+      : ['The old case directories were removed (recover with `git checkout -- <dir>`).']),
     '',
   ];
   let todoCount = 0;
@@ -511,8 +540,12 @@ export function migrateSnapTests(): void {
   // inside `fixtures/` is treated as a fixture by the harness.
   const reportPath = path.join(outDir, '..', 'MIGRATION-REPORT.md');
   fs.writeFileSync(reportPath, reportLines.join('\n'));
+  const migrated = reports.filter((r) => !r.skipped).length;
+  const skipped = reports.length - migrated;
   console.log(
-    `Migrated ${reports.length} case(s) to ${outDir}; ${todoCount} TODO(s) need hand conversion.`,
+    `Migrated ${migrated} case(s) to ${outDir}${
+      keepOld || migrated === 0 ? '' : ' and removed the old case dir(s)'
+    }${skipped > 0 ? `, skipped ${skipped}` : ''}; ${todoCount} TODO(s) need hand conversion.`,
   );
   console.log(`Report: ${reportPath}`);
 }

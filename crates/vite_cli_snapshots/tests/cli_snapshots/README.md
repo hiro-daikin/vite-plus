@@ -177,10 +177,13 @@ workspace a test runs in.
 ```bash
 node packages/tools/src/bin.js migrate-snap-tests packages/cli/snap-tests --vp local <name-filter>
 UPDATE_SNAPSHOTS=1 just snapshot-test <name_filter>
-# review each new .md against the old snap.txt, then delete the old case
-# directories in the same PR
+# review each new .md against the deleted snap.txt in git diff, then commit
 ```
 
 The migrator converts `steps.json` fields, splits `&&` chains, maps shell
-built-ins to `vpt`, and reports anything needing hand conversion in
-`MIGRATION-REPORT.md` (generated, gitignored).
+built-ins to `vpt`, removes the successfully converted old case directories
+(`--keep-old` defers that; git history keeps the originals), and reports
+anything needing hand conversion in `MIGRATION-REPORT.md` (generated,
+gitignored). A case whose target fixture already exists is skipped and
+reported: the same name in both legacy trees means a hand merge, usually a
+second `[[case]]` in the fixture or a `vp = ["local", "global"]` matrix.
