@@ -1118,7 +1118,11 @@ jobs:
       - name: Run PTY snapshot tests
         shell: bash
         run: |
-          export VP_SNAP_GLOBAL_VP="$USERPROFILE/.vite-plus/bin/vp.exe"
+          # current/bin, not bin: on Windows bin\vp.exe is the trampoline,
+          # which re-execs %VP_HOME%\current\bin\vp.exe; the harness gives
+          # each case an isolated VP_HOME with no install inside, so the
+          # trampoline would fail. current\bin\vp.exe is the real CLI.
+          export VP_SNAP_GLOBAL_VP="$USERPROFILE/.vite-plus/current/bin/vp.exe"
           export VP_SNAP_JS_RUNTIME_DIR="$USERPROFILE/.vite-plus/js_runtime"
           # --no-fail-fast: on a snapshot suite every diff is diagnostic
           # signal; cancelling on the first failure hides the rest.
