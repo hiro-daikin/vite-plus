@@ -1,0 +1,217 @@
+//! Provisioning for the two `vp` flavors a case can run under.
+//!
+//! - `global`: the Rust binary built from `crates/vite_global_cli`, resolved
+//!   from the target directory next to this test executable.
+//! - `local`: the JS CLI dispatch scripts in `packages/cli/bin`, which require
+//!   `node` on `PATH` and a built `packages/cli/dist`.
+//!
+//! Each flavor gets one bin directory per run (created under the run temp
+//! root) that fronts exactly the executables a fixture may invoke; per-case
+//! state isolation happens through `VP_HOME`/`HOME`, not through the bin dir.
+
+use std::{
+    env::{join_paths, split_paths},
+    ffi::OsString,
+    path::{Path, PathBuf},
+};
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Flavor {
+    Local,
+    Global,
+}
+
+impl Flavor {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Global => "global",
+        }
+    }
+}
+
+/// Everything the runner needs to spawn commands under one flavor.
+pub struct FlavorRuntime {
+    pub bin_dir: PathBuf,
+    pub node_dir: PathBuf,
+    /// `VITE_GLOBAL_CLI_JS_SCRIPTS_DIR` value for the global flavor.
+    pub js_scripts_dir: Option<PathBuf>,
+    pub path_env: OsString,
+}
+
+pub fn repo_root() -> PathBuf {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    manifest_dir.parent().unwrap().parent().unwrap().to_path_buf()
+}
+
+/// Locates the freshly built global `vp` binary next to this test executable
+/// (test binaries run from `target/<profile>/deps/`, the product binaries sit
+/// one directory up). Build ordering is the entry-point recipe's job, so a
+/// missing binary fails fast with that instruction instead of silently
+/// testing a stale build.
+fn global_vp_path() -> Result<PathBuf, String> {
+    let exe = std::env::current_exe().map_err(|e| format!("current_exe failed: {e}"))?;
+    let deps_dir = exe.parent().ok_or("test executable has no parent dir")?;
+    let name = format!("vp{}", std::env::consts::EXE_SUFFIX);
+    for dir in [deps_dir, deps_dir.parent().unwrap_or(deps_dir)] {
+        let candidate = dir.join(&name);
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+    Err(format!(
+        "global `vp` binary not found next to {}; run `just snapshot-test` \
+         (or `cargo build -p vite_global_cli`) first",
+        exe.display()
+    ))
+}
+
+/// Locates the local JS CLI bin directory. `VP_SNAP_LOCAL_CLI_BIN_DIR`
+/// overrides the default `<repo>/packages/cli/bin` (useful when the built
+/// `dist/` lives in another checkout or a CI artifact directory).
+fn local_cli_bin_dir() -> Result<PathBuf, String> {
+    let bin_dir = std::env::var_os("VP_SNAP_LOCAL_CLI_BIN_DIR")
+        .map_or_else(|| repo_root().join("packages/cli/bin"), PathBuf::from);
+    let dist_entry = bin_dir.parent().map(|p| p.join("dist/bin.js"));
+    if !dist_entry.as_deref().is_some_and(Path::is_file) {
+        return Err(format!(
+            "local CLI is not built: expected {} (run `pnpm build`, or point \
+             VP_SNAP_LOCAL_CLI_BIN_DIR at a built packages/cli/bin)",
+            dist_entry.map_or_else(String::new, |p| p.display().to_string()),
+        ));
+    }
+    Ok(bin_dir)
+}
+
+fn vpt_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_BIN_EXE_vpt"))
+}
+
+/// Directory holding an already-provisioned managed JS runtime that each
+/// case's `VP_HOME` is seeded with (symlinked, read-mostly). Without a seed,
+/// any command that touches the managed runtime downloads ~50MB per case.
+/// Override with `VP_SNAP_JS_RUNTIME_DIR` (CI restores a cached runtime
+/// there); defaults to the developer's real `~/.vite-plus/js_runtime`.
+/// Cases that test runtime provisioning itself opt out via
+/// `seed-runtime = false`.
+pub fn js_runtime_seed_dir() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("VP_SNAP_JS_RUNTIME_DIR") {
+        let dir = PathBuf::from(dir);
+        return dir.is_dir().then_some(dir);
+    }
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })?;
+    let dir = PathBuf::from(home).join(".vite-plus/js_runtime");
+    dir.is_dir().then_some(dir)
+}
+
+/// Installs `name` into `bin_dir`, pointing at `target`. Symlink on Unix; on
+/// Windows, native executables are copied and scripts get a `.cmd` shim that
+/// invokes `node` directly.
+fn install_tool(bin_dir: &Path, name: &str, target: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(target, bin_dir.join(name))
+            .map_err(|e| format!("failed to link {name}: {e}"))
+    }
+    #[cfg(windows)]
+    {
+        if target.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("exe")) {
+            std::fs::copy(target, bin_dir.join(format!("{name}.exe")))
+                .map(|_| ())
+                .map_err(|e| format!("failed to copy {name}: {e}"))
+        } else {
+            let shim = format!("@node \"{}\" %*\r\n", target.display());
+            std::fs::write(bin_dir.join(format!("{name}.cmd")), shim)
+                .map_err(|e| format!("failed to write {name}.cmd: {e}"))
+        }
+    }
+}
+
+fn compose_path_env(bin_dir: &Path, node_dir: &Path) -> OsString {
+    let mut entries: Vec<PathBuf> = vec![bin_dir.to_path_buf(), node_dir.to_path_buf()];
+    if cfg!(windows) {
+        // Windows needs System32 and friends for anything to run; inherit the
+        // ambient PATH after the controlled entries.
+        if let Some(path) = std::env::var_os("PATH") {
+            entries.extend(split_paths(&path));
+        }
+    } else {
+        // A fixed system tail keeps child processes deterministic: `git` and
+        // the usual coreutils resolve from the OS, nothing else leaks in.
+        for dir in ["/usr/bin", "/bin", "/usr/sbin", "/sbin"] {
+            entries.push(PathBuf::from(dir));
+        }
+    }
+    join_paths(entries).unwrap()
+}
+
+/// Creates the per-run bin directory for `flavor` under `run_root`.
+pub fn provision(flavor: Flavor, run_root: &Path) -> Result<FlavorRuntime, String> {
+    let node = which::which("node")
+        .map_err(|e| format!("`node` not found on PATH (needed by the CLI under test): {e}"))?;
+    let node_dir = node.parent().ok_or("node has no parent dir")?.to_path_buf();
+
+    let bin_dir = run_root.join(format!("bin-{}", flavor.as_str()));
+    std::fs::create_dir_all(&bin_dir).map_err(|e| format!("failed to create bin dir: {e}"))?;
+
+    let js_scripts_dir = match flavor {
+        Flavor::Global => {
+            let vp = global_vp_path()?;
+            // The global binary dispatches on argv0, so the aliases are links
+            // to the same executable.
+            for name in ["vp", "vpr", "vpx"] {
+                install_tool(&bin_dir, name, &vp)?;
+            }
+            Some(repo_root().join("packages/cli/dist"))
+        }
+        Flavor::Local => {
+            let local_bin = local_cli_bin_dir()?;
+            for name in ["vp", "vpr", "oxfmt", "oxlint"] {
+                let target = local_bin.join(name);
+                if target.exists() {
+                    install_tool(&bin_dir, name, &target)?;
+                }
+            }
+            None
+        }
+    };
+    install_tool(&bin_dir, "vpt", &vpt_path())?;
+
+    let path_env = compose_path_env(&bin_dir, &node_dir);
+    Ok(FlavorRuntime { bin_dir, node_dir, js_scripts_dir, path_env })
+}
+
+impl FlavorRuntime {
+    /// Resolves a step's `argv[0]` to an absolute path. Only the vp family,
+    /// `vpt`, and an allow-list of real tools may run as steps; everything
+    /// else belongs behind a `vpt` subcommand so fixtures stay
+    /// platform-identical.
+    pub fn resolve_program(&self, program: &str) -> Result<PathBuf, String> {
+        match program {
+            "vp" | "vpr" | "vpx" | "vpt" | "oxfmt" | "oxlint" => {
+                let name = if cfg!(windows) {
+                    // Installed as either .exe or .cmd; try both.
+                    ["exe", "cmd"]
+                        .iter()
+                        .map(|ext| self.bin_dir.join(format!("{program}.{ext}")))
+                        .find(|p| p.is_file())
+                        .ok_or_else(|| format!("`{program}` is not available in this flavor"))?
+                } else {
+                    let p = self.bin_dir.join(program);
+                    if !p.is_file() && !p.is_symlink() {
+                        return Err(format!("`{program}` is not available in this flavor"));
+                    }
+                    p
+                };
+                Ok(name)
+            }
+            "node" => Ok(self.node_dir.join(format!("node{}", std::env::consts::EXE_SUFFIX))),
+            "git" | "npm" | "pnpm" | "yarn" | "bun" => which::which(program)
+                .map_err(|e| format!("`{program}` not found on the harness PATH: {e}")),
+            other => Err(format!(
+                "step program `{other}` is not allowed; use a `vpt` subcommand instead"
+            )),
+        }
+    }
+}

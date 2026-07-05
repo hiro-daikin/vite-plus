@@ -127,6 +127,14 @@ jobs:
 
       - run: just test
 
+      # PTY snapshot harness (crates/vite_cli_snapshots). Local-flavor cases
+      # need a built packages/cli dist, which this job does not produce; they
+      # join CI when the old snap-test job is replaced during migration.
+      - name: CLI snapshot tests (global flavor)
+        run: just snapshot-test
+        env:
+          VP_SNAP_SKIP_FLAVORS: local
+
   # Windows tests are cross-compiled on a fast Linux runner with cargo-xwin
   # (clang-cl + lld-link against the xwin-downloaded MSVC CRT/Windows SDK)
   # and packed into a portable nextest archive. The test-windows job then

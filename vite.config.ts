@@ -45,6 +45,7 @@ export default defineConfig({
       '**/snap-tests/**',
       '**/snap-tests-global/**',
       '**/snap-tests-todo/**',
+      'crates/vite_cli_snapshots/tests/cli_snapshots/fixtures/**',
       'packages/*/binding/**',
     ],
   },
@@ -56,6 +57,7 @@ export default defineConfig({
       '**/node_modules/**',
       '**/snap-tests/**',
       '**/snap-tests-global/**',
+      'crates/vite_cli_snapshots/tests/cli_snapshots/fixtures/**',
       // FIXME: Error: failed to prepare the command for injection: Invalid argument (os error 22)
       'packages/*/binding/__tests__/',
     ],
@@ -63,6 +65,7 @@ export default defineConfig({
   fmt: {
     ignorePatterns: [
       '**/tmp/**',
+      'crates/vite_cli_snapshots/tests/cli_snapshots/fixtures/**',
       'packages/cli/snap-tests/check-*/**',
       'packages/cli/snap-tests/fmt-ignore-patterns/src/ignored',
       // JSONC fixtures intentionally keep comments and trailing commas

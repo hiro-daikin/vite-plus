@@ -1,0 +1,13 @@
+[[case]]
+name = "file_roundtrip"
+vp = "global"
+comment = "vpt setup/assertion helpers behave identically across platforms."
+steps = [
+  ["vpt", "write-file", "notes/hello.txt", "hello from vpt"],
+  ["vpt", "print-file", "notes/hello.txt"],
+  ["vpt", "stat-file", "notes/hello.txt", "missing.txt"],
+  ["vpt", "list-dir", "notes"],
+  ["vpt", "json-edit", "package.json", "scripts.build", "vp build"],
+  ["vpt", "print-file", "package.json"],
+  { argv = ["vpt", "exit", "3"], comment = "Nonzero exit codes are recorded in the snapshot." },
+]
