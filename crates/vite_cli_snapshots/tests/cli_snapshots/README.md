@@ -110,8 +110,9 @@ A step is a bare argv array or a table:
 redirects, no globs. File setup and assertions go through `vpt` so behavior
 is identical on every platform:
 
-`vpt print-file` (cat), `vpt stat-file` (prints `file`/`dir`/`missing`, so
-`test -f` vs `test -d` fidelity is kept), `vpt write-file`,
+`vpt print-file` (cat), `vpt stat-file` (prints `file`/`dir`/`missing`;
+`--assert <state>` / `--assert-not <state>` also fail on mismatch, so
+`test -f x && cmd` guards keep their short-circuit), `vpt write-file`,
 `vpt touch-file`, `vpt replace-file-content`, `vpt list-dir`, `vpt mkdir`,
 `vpt rm`, `vpt cp`, `vpt chmod`, `vpt grep-file`, `vpt json-edit`,
 `vpt pipe-stdin <data> -- <argv>`, plus task payloads for `vp run` tests:

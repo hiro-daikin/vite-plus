@@ -78,10 +78,7 @@ fn main() {
         "read-stdin" => read_stdin::run(),
         "replace-file-content" => replace_file_content::run(&args[2..]),
         "rm" => rm::run(&args[2..]),
-        "stat-file" => {
-            stat_file::run(&args[2..]);
-            Ok(())
-        }
+        "stat-file" => stat_file::run(&args[2..]),
         "touch-file" => touch_file::run(&args[2..]),
         "write-file" => write_file::run(&args[2..]),
         other => {

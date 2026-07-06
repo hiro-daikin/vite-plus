@@ -911,13 +911,35 @@ fn run_case(
         };
         let after_path = after_env.get("PATH").cloned().unwrap_or_else(|| case_path.clone());
         if let Ok(program) = runtime.resolve_program(&argv[0], &after_path) {
-            let _ = std::process::Command::new(program)
-                .args(&argv[1..])
+            let mut cmd = std::process::Command::new(program);
+            cmd.args(&argv[1..])
                 .env_clear()
                 .envs(after_env)
                 .current_dir(stage.join(step.cwd().unwrap_or(case.cwd.as_str())))
                 .stdin(std::process::Stdio::null())
-                .output();
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::CommandExt as _;
+                cmd.process_group(0);
+            }
+            // Cleanup honors the step timeout (output is discarded either
+            // way), so a hung teardown can never wedge the whole suite.
+            if let Ok(mut child) = cmd.spawn() {
+                let deadline = std::time::Instant::now() + step.timeout();
+                loop {
+                    match child.try_wait() {
+                        Ok(Some(_)) | Err(_) => break,
+                        Ok(None) if std::time::Instant::now() >= deadline => {
+                            kill_step_tree(&mut child);
+                            let _ = child.wait();
+                            break;
+                        }
+                        Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+                    }
+                }
+            }
         }
     }
 

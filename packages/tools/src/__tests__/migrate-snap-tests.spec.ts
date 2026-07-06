@@ -34,9 +34,28 @@ describe('translateCommand', () => {
     expect(context.todos).toHaveLength(0);
   });
 
-  it('drops `!` from test expressions (stat-file records actual state)', () => {
-    const steps = translateCommand('test ! -f .nvmrc', ctx());
-    expect(argvs(steps)).toEqual([['vpt', 'stat-file', '.nvmrc']]);
+  it('maps test expressions to stat-file asserts, keeping exit semantics', () => {
+    expect(argvs(translateCommand('test ! -f .nvmrc', ctx()))).toEqual([
+      ['vpt', 'stat-file', '.nvmrc', '--assert-not', 'file'],
+    ]);
+    expect(argvs(translateCommand('test -d dist', ctx()))).toEqual([
+      ['vpt', 'stat-file', 'dist', '--assert', 'dir'],
+    ]);
+    expect(argvs(translateCommand('test -e marker', ctx()))).toEqual([
+      ['vpt', 'stat-file', 'marker', '--assert-not', 'missing'],
+    ]);
+  });
+
+  it('keeps guard chains short-circuiting via the failing assert', () => {
+    // `test -f marker && vp run build`: the guard step fails on a missing
+    // marker and the line-boundary flow skips the guarded command.
+    const steps = translateCommand('test -f marker && vp run build', ctx());
+    expect(argvs(steps)).toEqual([
+      ['vpt', 'stat-file', 'marker', '--assert', 'file'],
+      ['vp', 'run', 'build'],
+    ]);
+    expect(steps[0].continueOnFailure).toBeUndefined();
+    expect(steps[1].continueOnFailure).toBe(true);
   });
 
   it('passes octal and +x chmod through, TODOs other symbolic modes', () => {

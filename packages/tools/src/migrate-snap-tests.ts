@@ -315,15 +315,23 @@ function translateSimple(command: string, ctx: TranslationContext): NewStep | nu
     step = { argv: ['vpt', 'print', args.join(' ')] };
   } else if (program === 'test') {
     // `test -f x` style existence checks map to stat-file, which prints an
-    // explicit exists/missing line (a stronger assertion than exit codes).
-    // `!` only flips the exit code; stat-file records the actual
-    // exists/missing state either way, so it is dropped from the paths.
+    // explicit file/dir/missing line AND fails on mismatch via --assert, so
+    // both the recorded assertion and the shell exit semantics survive
+    // (guards like `test -f x && cmd` short-circuit through the runner's
+    // line-boundary failure flow).
     const paths = args.filter((a) => a !== '!' && !a.startsWith('-'));
+    const flags = args.filter((a) => a.startsWith('-'));
+    const negated = args.includes('!');
     if (
       paths.length > 0 &&
+      flags.length === 1 &&
       args.every((a) => a === '!' || /^-[fde]$/.test(a) || !a.startsWith('-'))
     ) {
-      step = { argv: ['vpt', 'stat-file', ...paths] };
+      const assertArgs =
+        flags[0] === '-e'
+          ? [negated ? '--assert' : '--assert-not', 'missing']
+          : [negated ? '--assert-not' : '--assert', flags[0] === '-d' ? 'dir' : 'file'];
+      step = { argv: ['vpt', 'stat-file', ...paths, ...assertArgs] };
     } else {
       return todo('unsupported test expression');
     }
