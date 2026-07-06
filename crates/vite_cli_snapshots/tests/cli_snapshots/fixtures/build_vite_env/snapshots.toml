@@ -1,3 +1,6 @@
+# No skip-platforms here on purpose: the legacy case skipped win32, but the
+# reasons (shell env prefixes, eol-dependent content hashes) do not apply in
+# this runner, and the Windows CI job has validated the case since.
 [[case]]
 name = "build_vite_env"
 vp = "local"
