@@ -115,7 +115,9 @@ fn local_cli_bin_dir() -> Result<PathBuf, String> {
     if overridden.is_none() && std::env::var_os("GITHUB_ACTIONS").is_none() {
         // packages/core shares the freshness requirement: it is linked into
         // the run-root node_modules and its exports load its dist. prompts
-        // has no dist of its own; it is bundled into the CLI dist.
+        // has no dist of its own; it is bundled into the CLI dist. Keep this
+        // list in sync with the packages feeding the CLI build (see
+        // packages/cli/BUNDLING.md): a new bundled package needs an entry.
         let cli_pkg = bin_dir.parent().unwrap().to_path_buf();
         let core_pkg = repo_root().join("packages/core");
         let checks = [
@@ -185,6 +187,11 @@ fn vpt_path() -> Result<PathBuf, String> {
 /// case's `VP_HOME` is seeded with (symlinked, read-mostly). Without a seed,
 /// any command that touches the managed runtime downloads ~50MB per case.
 /// Override with `VP_SNAP_JS_RUNTIME_DIR` (CI restores a cached runtime
+/// Home-layout names, shared with `CaseHome` in main.rs so the product's
+/// `~/.vite-plus/js_runtime` layout is spelled once.
+pub const VP_HOME_DIR: &str = ".vite-plus";
+pub const JS_RUNTIME_DIR: &str = "js_runtime";
+
 /// there); defaults to the developer's real `~/.vite-plus/js_runtime`.
 /// Cases that test runtime provisioning itself opt out via
 /// `seed-runtime = false`.
@@ -194,7 +201,7 @@ pub fn js_runtime_seed_dir() -> Option<PathBuf> {
         return dir.is_dir().then_some(dir);
     }
     let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })?;
-    let dir = PathBuf::from(home).join(".vite-plus/js_runtime");
+    let dir = PathBuf::from(home).join(VP_HOME_DIR).join(JS_RUNTIME_DIR);
     dir.is_dir().then_some(dir)
 }
 
@@ -210,8 +217,11 @@ fn install_tool(bin_dir: &Path, name: &str, target: &Path) -> Result<(), String>
     #[cfg(windows)]
     {
         if target.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("exe")) {
-            std::fs::copy(target, bin_dir.join(format!("{name}.exe")))
-                .map(|_| ())
+            // Hard links are free and CI's bin dir shares a volume with the
+            // source; fall back to a real copy across volumes.
+            let dest = bin_dir.join(format!("{name}.exe"));
+            std::fs::hard_link(target, &dest)
+                .or_else(|_| std::fs::copy(target, &dest).map(|_| ()))
                 .map_err(|e| format!("failed to copy {name}: {e}"))
         } else {
             let shim = format!("@node \"{}\" %*\r\n", target.display());
@@ -275,7 +285,10 @@ pub fn provision(flavor: Flavor, run_root: &Path) -> Result<FlavorRuntime, Strin
             if let Some(shim) = vp.parent().map(|dir| dir.join("vp-shim.exe"))
                 && shim.is_file()
             {
-                let _ = std::fs::copy(&shim, bin_dir.join("vp-shim.exe"));
+                let dest = bin_dir.join("vp-shim.exe");
+                if std::fs::hard_link(&shim, &dest).is_err() {
+                    let _ = std::fs::copy(&shim, &dest);
+                }
             }
             Some(repo_root().join("packages/cli/dist"))
         }
@@ -300,7 +313,8 @@ impl FlavorRuntime {
     /// Resolves a step's `argv[0]` to an absolute path. Only the vp family,
     /// `vpt`, and an allow-list of real tools may run as steps; everything
     /// else belongs behind a `vpt` subcommand so fixtures stay
-    /// platform-identical. Real tools resolve through the CASE's `PATH`
+    /// platform-identical. Keep the allow-list in sync with
+    /// `PASSTHROUGH_PROGRAMS` in packages/tools/src/migrate-snap-tests.ts. Real tools resolve through the CASE's `PATH`
     /// (which leads with `$VP_HOME/bin`), so shims a case creates via
     /// `vp env setup` or global installs take precedence over host tools.
     pub fn resolve_program(
@@ -321,6 +335,8 @@ impl FlavorRuntime {
                 }
                 self.bin_dir_tool(program)
             }
+            // vpt is the runner's own assertion tool: a case-created shim must
+            // never shadow it, so it resolves only from the flavor bin dir.
             "vpt" => self.bin_dir_tool(program),
             "node" | "git" | "npm" | "pnpm" | "yarn" | "bun" => {
                 which::which_in(program, Some(case_path), cwd)

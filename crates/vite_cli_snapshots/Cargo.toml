@@ -14,13 +14,13 @@ path = "src/bin/vpt/main.rs"
 test = false
 
 [dependencies]
+cp_r = { workspace = true }
 ctrlc = { workspace = true }
 pty_terminal_test_client = { workspace = true, features = ["testing"] }
 serde_json = { workspace = true }
 
 [dev-dependencies]
 cow-utils = { workspace = true }
-cp_r = { workspace = true }
 dunce = { workspace = true }
 libtest-mimic = { workspace = true }
 pty_terminal_test = { workspace = true }

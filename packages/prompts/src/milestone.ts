@@ -21,10 +21,6 @@ const ZERO_WIDTH_ANCHOR = '​';
 // disabled path must stay a single branch.
 const MILESTONES_ENABLED = process.env.VP_EMIT_MILESTONES === '1';
 
-export function milestonesEnabled(): boolean {
-  return MILESTONES_ENABLED;
-}
-
 /**
  * Returns the encoded milestone byte sequence for `name`, or an empty string
  * when emission is disabled. Append the result to a rendered prompt frame so

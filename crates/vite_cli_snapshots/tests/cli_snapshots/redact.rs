@@ -92,31 +92,25 @@ fn redact_string(s: &mut String, redactions: &[(&str, &str)], normalize_separato
 )]
 fn path_variants(path: &str, label: &'static str) -> Vec<(String, &'static str)> {
     use cow_utils::CowUtils as _;
+    // Every spelling a child process may print: raw, verbatim-prefix
+    // stripped, debug-escaped (`\\`), and forward-slash (file:// URLs, JS
+    // stack frames; the separator-normalization pass runs after redaction,
+    // so those need their own variants). Longest-first ordering makes the
+    // more specific spellings win.
     let stripped = path.strip_prefix(r"\\?\").unwrap_or(path);
-    let mut variants = vec![(path.to_owned(), label)];
-    if stripped != path {
-        variants.push((stripped.to_owned(), label));
-    }
-    let escaped = path.cow_replace('\\', r"\\").into_owned();
-    if escaped != path {
-        variants.insert(0, (escaped, label));
-    }
-    let stripped_escaped = stripped.cow_replace('\\', r"\\").into_owned();
-    if stripped_escaped != stripped && !variants.iter().any(|(v, _)| *v == stripped_escaped) {
-        variants.insert(1, (stripped_escaped, label));
-    }
-    // Windows children also print forward-slash forms of absolute paths
-    // (file:// URLs, JS stack frames); the separator-normalization pass runs
-    // after redaction, so those need their own variants.
-    let slashed = path.cow_replace('\\', "/").into_owned();
-    if slashed != path && !variants.iter().any(|(v, _)| *v == slashed) {
-        variants.push((slashed, label));
-    }
-    let stripped_slashed = stripped.cow_replace('\\', "/").into_owned();
-    if stripped_slashed != stripped && !variants.iter().any(|(v, _)| *v == stripped_slashed) {
-        variants.push((stripped_slashed, label));
-    }
-    variants
+    let mut variants: Vec<String> = [path, stripped]
+        .into_iter()
+        .flat_map(|p| {
+            [
+                p.to_owned(),
+                p.cow_replace('\\', r"\\").into_owned(),
+                p.cow_replace('\\', "/").into_owned(),
+            ]
+        })
+        .collect();
+    variants.sort_by_key(|v| std::cmp::Reverse(v.len()));
+    variants.dedup();
+    variants.into_iter().map(|v| (v, label)).collect()
 }
 
 /// Redacts a captured screen. `paths` maps machine-specific absolute paths to
@@ -241,9 +235,7 @@ fn sort_diagnostic_blocks(output: &str) -> String {
 
             blocks.sort();
 
-            // Restore an empty-line separator after every block (`i` never
-            // exceeds parts.len(), so the upstream guard here was always
-            // true; keep the behavior, drop the misleading condition).
+            // Append an empty-line separator after every block.
             for block in &blocks {
                 result.extend_from_slice(block);
                 result.push("");

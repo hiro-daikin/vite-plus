@@ -15,6 +15,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { parseArgs } from 'node:util';
 
 // The legacy steps.json schema comes straight from the old runner, so the
 // migrator can never drift from what actually ran.
@@ -26,6 +27,8 @@ interface NewStep {
   cwd?: string;
   envs?: [string, string][];
   continueOnFailure?: boolean;
+  timeout?: number;
+  snapshot?: boolean;
 }
 
 /** New-runner fixture/case names allow only `[A-Za-z0-9_]`. */
@@ -47,34 +50,43 @@ const OS_MAP: Record<string, string> = {
   linux: 'linux',
 };
 
-/** Splits a shell line on a top-level `&&`, respecting quotes. */
-function splitOnAndAnd(line: string): string[] {
-  const parts: string[] = [];
-  let current = '';
+/**
+ * True at each index outside single/double quotes: the one quote-state
+ * scanner behind splitOnAndAnd and extractComment, so quoting rules cannot
+ * drift between them.
+ */
+function unquotedMask(line: string): boolean[] {
+  const mask: boolean[] = [];
   let quote: string | null = null;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
+  for (const ch of line) {
     if (quote) {
-      current += ch;
+      mask.push(false);
       if (ch === quote) {
         quote = null;
       }
-      continue;
-    }
-    if (ch === "'" || ch === '"') {
+    } else if (ch === "'" || ch === '"') {
       quote = ch;
-      current += ch;
-      continue;
+      mask.push(false);
+    } else {
+      mask.push(true);
     }
-    if (ch === '&' && line[i + 1] === '&') {
-      parts.push(current);
-      current = '';
-      i++;
-      continue;
-    }
-    current += ch;
   }
-  parts.push(current);
+  return mask;
+}
+
+/** Splits a shell line on a top-level `&&`, respecting quotes. */
+function splitOnAndAnd(line: string): string[] {
+  const mask = unquotedMask(line);
+  const parts: string[] = [];
+  let start = 0;
+  for (let i = 0; i < line.length - 1; i++) {
+    if (mask[i] && line[i] === '&' && line[i + 1] === '&') {
+      parts.push(line.slice(start, i));
+      start = i + 2;
+      i++;
+    }
+  }
+  parts.push(line.slice(start));
   return parts.map((p) => p.trim()).filter((p) => p.length > 0);
 }
 
@@ -95,18 +107,8 @@ function tokenize(command: string): string[] | null {
       i++;
       continue;
     }
-    if (ch === "'") {
-      const end = command.indexOf("'", i + 1);
-      if (end === -1) {
-        return null;
-      }
-      current += command.slice(i + 1, end);
-      hasCurrent = true;
-      i = end + 1;
-      continue;
-    }
-    if (ch === '"') {
-      const end = command.indexOf('"', i + 1);
+    if (ch === "'" || ch === '"') {
+      const end = command.indexOf(ch, i + 1);
       if (end === -1) {
         return null;
       }
@@ -132,26 +134,17 @@ function extractComment(line: string): { command: string; comment?: string } {
     // Comment-only entries are documentation, not commands.
     return { command: '', comment: trimmed.slice(1).trim() };
   }
-  let quote: string | null = null;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (quote) {
-      if (ch === quote) {
-        quote = null;
-      }
-      continue;
-    }
-    if (ch === "'" || ch === '"') {
-      quote = ch;
-      continue;
-    }
-    if (ch === '#' && i > 0 && (line[i - 1] === ' ' || line[i - 1] === '\t')) {
+  const mask = unquotedMask(line);
+  for (let i = 1; i < line.length; i++) {
+    if (mask[i] && line[i] === '#' && (line[i - 1] === ' ' || line[i - 1] === '\t')) {
       return { command: line.slice(0, i).trim(), comment: line.slice(i + 1).trim() };
     }
   }
   return { command: line.trim() };
 }
 
+// Keep in sync with resolve_program's allow-list in
+// crates/vite_cli_snapshots/tests/cli_snapshots/flavor.rs.
 const PASSTHROUGH_PROGRAMS = new Set([
   'vp',
   'vpr',
@@ -294,11 +287,14 @@ function translateSimple(command: string, ctx: TranslationContext): NewStep | nu
       } else {
         return todo('unsupported chmod invocation');
       }
-    } else if (program === 'ls' && args.some((a) => a.startsWith('-'))) {
-      // ls flags (-a, -l, ...) change semantics list-dir does not replicate.
-      return todo('ls flags need hand conversion');
     } else if (program in COREUTILS_MAP) {
-      step = { argv: ['vpt', COREUTILS_MAP[program], ...args.filter((a) => !a.startsWith('-'))] };
+      // Flags change coreutils semantics in ways the vpt counterpart does
+      // not replicate (ls -a, touch -c, cat -n, ...): faithful or flagged,
+      // never silently stripped.
+      if (args.some((a) => a.startsWith('-'))) {
+        return todo(`${program} flags need hand conversion`);
+      }
+      step = { argv: ['vpt', COREUTILS_MAP[program], ...args] };
     } else {
       step = { argv: ['vpt', program, ...args] };
     }
@@ -420,14 +416,14 @@ function tomlKey(key: string): string {
   return /^[A-Za-z0-9_-]+$/.test(key) ? key : tomlString(key);
 }
 
-function emitStep(step: NewStep, extra: { timeout?: number; snapshot?: boolean }): string {
+function emitStep(step: NewStep): string {
   const isSimple =
     step.comment === undefined &&
     step.cwd === undefined &&
     step.envs === undefined &&
     step.continueOnFailure !== true &&
-    extra.timeout === undefined &&
-    extra.snapshot === undefined;
+    step.timeout === undefined &&
+    step.snapshot === undefined;
   const argv = `[${step.argv.map(tomlString).join(', ')}]`;
   if (isSimple) {
     return `  ${argv},`;
@@ -443,11 +439,11 @@ function emitStep(step: NewStep, extra: { timeout?: number; snapshot?: boolean }
     const envs = step.envs.map(([k, v]) => `[${tomlString(k)}, ${tomlString(v)}]`).join(', ');
     fields.push(`envs = [${envs}]`);
   }
-  if (extra.timeout !== undefined) {
-    fields.push(`timeout = ${extra.timeout}`);
+  if (step.timeout !== undefined) {
+    fields.push(`timeout = ${step.timeout}`);
   }
-  if (extra.snapshot !== undefined) {
-    fields.push(`snapshot = ${String(extra.snapshot)}`);
+  if (step.snapshot !== undefined) {
+    fields.push(`snapshot = ${String(step.snapshot)}`);
   }
   if (step.continueOnFailure === true) {
     fields.push('continue-on-failure = true');
@@ -463,10 +459,11 @@ function migrateCase(
 ): CaseReport {
   const report: CaseReport = { name: caseName, notes: [], todos: [] };
 
+  const newName = fixtureName(caseName);
   // Never clobber an existing fixture: the same case name can exist in both
   // legacy trees (local and global), and merging those is a hand decision
   // (usually a second [[case]] or a vp = ["local", "global"] matrix).
-  const targetDir = path.join(outDir, fixtureName(caseName));
+  const targetDir = path.join(outDir, newName);
   if (fs.existsSync(targetDir)) {
     report.todos.push(
       `target fixture \`${path.basename(targetDir)}\` already exists; case skipped, merge it by hand`,
@@ -483,7 +480,6 @@ function migrateCase(
     needsFreshRuntime: false,
   };
 
-  const newName = fixtureName(caseName);
   if (newName !== caseName) {
     report.notes.push(`renamed to \`${newName}\` (identifier rule)`);
   }
@@ -532,20 +528,29 @@ function migrateCase(
     report.todos.push('`linkCheckoutPackages` is not supported by the new suite yet');
   }
 
+  // Translate EVERYTHING (steps and after-cleanup) before emitting the
+  // ctx-derived case flags below, so a flag-triggering command in `after`
+  // is observed too.
   const stepLines: string[] = [];
   for (const entry of old.commands) {
     const raw = typeof entry === 'string' ? entry : entry.command;
-    const extra =
-      typeof entry === 'string'
-        ? {}
-        : {
-            timeout: entry.timeout,
-            snapshot: entry.ignoreOutput === true ? false : undefined,
-          };
     for (const step of translateCommand(raw, ctx)) {
-      stepLines.push(emitStep(step, extra));
+      if (typeof entry !== 'string') {
+        step.timeout = entry.timeout;
+        if (entry.ignoreOutput === true) {
+          step.snapshot = false;
+        }
+      }
+      stepLines.push(emitStep(step));
     }
   }
+  const afterLines: string[] = [];
+  for (const raw of old.after ?? []) {
+    for (const step of translateCommand(raw, ctx)) {
+      afterLines.push(emitStep(step));
+    }
+  }
+
   if (ctx.needsFreshRuntime) {
     lines.push('seed-runtime = false');
     report.notes.push(
@@ -562,52 +567,40 @@ function migrateCase(
     );
   }
   lines.push('steps = [', ...stepLines, ']');
-
-  if (old.after && old.after.length > 0) {
-    const afterLines: string[] = [];
-    for (const raw of old.after) {
-      for (const step of translateCommand(raw, ctx)) {
-        afterLines.push(emitStep(step, {}));
-      }
-    }
+  if (afterLines.length > 0) {
     lines.push('after = [', ...afterLines, ']');
   }
 
   // Write the fixture: everything except steps.json and snap.txt carries over.
-  const fixtureDir = path.join(outDir, newName);
-  fs.mkdirSync(fixtureDir, { recursive: true });
+  fs.mkdirSync(targetDir, { recursive: true });
   // Only the ROOT metadata files are omitted; a project file that happens
   // to be named snap.txt or steps.json in a subdirectory carries over.
   const rootMetadata = new Set([
     path.resolve(caseDir, 'steps.json'),
     path.resolve(caseDir, 'snap.txt'),
   ]);
-  fs.cpSync(caseDir, fixtureDir, {
+  fs.cpSync(caseDir, targetDir, {
     recursive: true,
     filter: (src) => !rootMetadata.has(path.resolve(src)),
   });
-  fs.writeFileSync(path.join(fixtureDir, 'snapshots.toml'), `${lines.join('\n')}\n`);
+  fs.writeFileSync(path.join(targetDir, 'snapshots.toml'), `${lines.join('\n')}\n`);
   return report;
 }
 
 export function migrateSnapTests(): void {
-  const args = process.argv.slice(3);
-  const positional: string[] = [];
-  let flavor: string | undefined;
-  let keepOld = false;
-  let outDir = 'crates/vite_cli_snapshots/tests/cli_snapshots/fixtures';
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--vp') {
-      flavor = args[++i];
-    } else if (args[i] === '--out') {
-      outDir = args[++i];
-    } else if (args[i] === '--keep-old') {
-      keepOld = true;
-    } else {
-      positional.push(args[i]);
-    }
-  }
-  const [oldDir, nameFilter] = positional;
+  const { values, positionals } = parseArgs({
+    args: process.argv.slice(3),
+    options: {
+      vp: { type: 'string' },
+      out: { type: 'string', default: 'crates/vite_cli_snapshots/tests/cli_snapshots/fixtures' },
+      'keep-old': { type: 'boolean', default: false },
+    },
+    allowPositionals: true,
+  });
+  const flavor = values.vp;
+  const outDir = values.out;
+  const keepOld = values['keep-old'];
+  const [oldDir, nameFilter] = positionals;
   if (!oldDir || (flavor !== 'local' && flavor !== 'global')) {
     console.error(
       'Usage: tool migrate-snap-tests <old-snap-tests-dir> --vp <local|global> [name-filter] [--out <fixtures-dir>] [--keep-old]',
@@ -630,10 +623,12 @@ export function migrateSnapTests(): void {
     // Only cleanly converted cases leave the legacy tree: TODO placeholders
     // are not coverage, so those cases keep their old dir until the hand
     // conversion lands.
-    if (!keepOld && !report.skipped && report.todos.length === 0) {
-      fs.rmSync(caseDir, { recursive: true, force: true });
-    } else if (!keepOld && !report.skipped && report.todos.length > 0) {
-      report.notes.push('old case dir kept until the TODOs are hand-converted');
+    if (!keepOld && !report.skipped) {
+      if (report.todos.length === 0) {
+        fs.rmSync(caseDir, { recursive: true, force: true });
+      } else {
+        report.notes.push('old case dir kept until the TODOs are hand-converted');
+      }
     }
   }
 

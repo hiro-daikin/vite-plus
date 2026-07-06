@@ -39,13 +39,14 @@ const STEP_TIMEOUT: Duration =
 /// Screen size for the PTY terminal. Large enough to avoid line wrapping.
 const SCREEN_SIZE: ScreenSize = ScreenSize { rows: 500, cols: 500 };
 
+/// Raw serde shape for a step: bare argv array or full table.
 #[derive(serde::Deserialize, Debug)]
 #[serde(untagged)]
-enum Step {
+enum StepDe {
     /// Shorthand: `["vp", "check"]`
     Simple(Vec<String>),
     /// Detailed: `{ argv = ["vp", "create"], interactions = [...], ... }`
-    Detailed(StepConfig),
+    Detailed(StepTable),
 }
 
 fn default_true() -> bool {
@@ -54,59 +55,97 @@ fn default_true() -> bool {
 
 #[derive(serde::Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
-struct StepConfig {
+struct StepTable {
     argv: Vec<String>,
-    /// Optional working directory for this step, relative to the staged
-    /// fixture root. Defaults to the case-level `cwd`.
     #[serde(default)]
     cwd: Option<String>,
-    /// Rendered under the step heading in the snapshot.
     #[serde(default)]
     comment: Option<String>,
-    /// Extra environment variables set for this step.
     #[serde(default)]
     envs: Vec<(String, String)>,
     #[serde(default)]
     interactions: Vec<Interaction>,
-    /// When true, render the terminal snapshot with inline ANSI escape codes
-    /// (made visible as `\x1b[…m`) so colour/style attributes are part of the
-    /// assertion. Default `false` keeps the plain-text behaviour.
     #[serde(default, rename = "formatted-snapshot")]
     formatted_snapshot: bool,
-    /// Per-step timeout override in milliseconds.
     #[serde(default)]
     timeout: Option<u64>,
-    /// When false, the step still runs (heading and exit code appear in the
-    /// snapshot) but its screen is omitted while the step succeeds; failures
-    /// always keep their output. Replaces the old `ignoreOutput`, which had
-    /// the same on-success-only semantics.
     #[serde(default = "default_true")]
     snapshot: bool,
-    /// When false, the step runs with piped stdio instead of a PTY, for cases
-    /// that specifically assert non-TTY behaviour. Interactions require a PTY.
     #[serde(default = "default_true")]
     tty: bool,
-    /// On failure, execution skips past the next step marked
-    /// `continue-on-failure = true` (the line boundary in migrated
-    /// fixtures) and resumes there; without one ahead, the case stops
-    /// (shell-like `&&`). A step marked true never interrupts the flow.
     #[serde(default, rename = "continue-on-failure")]
     continue_on_failure: bool,
 }
 
-impl Step {
-    fn argv(&self) -> &[String] {
-        match self {
-            Self::Simple(argv) => argv,
-            Self::Detailed(config) => &config.argv,
+/// One executable step, normalized at deserialization: the argv shorthand
+/// is a table with every option at its default, so the runner body deals
+/// with exactly one shape. Field semantics:
+/// - `cwd`: per-step working dir relative to the staged fixture root,
+///   defaulting to the case-level `cwd`.
+/// - `comment`: rendered under the step heading in the snapshot.
+/// - `formatted_snapshot`: render the screen with inline ANSI escapes made
+///   visible (`\x1b[…m`) so colour/style attributes are asserted.
+/// - `timeout`: per-step override in ms (default `STEP_TIMEOUT`).
+/// - `snapshot = false`: omit the screen while the step succeeds; failures
+///   always keep their output (legacy `ignoreOutput` semantics).
+/// - `tty = false`: piped stdio instead of a PTY, for non-TTY assertions;
+///   interactions require a PTY.
+/// - `continue_on_failure`: on failure, execution skips past the next step
+///   marked true (the line boundary in migrated fixtures) and resumes;
+///   without one ahead, the case stops (shell-like `&&`).
+#[derive(serde::Deserialize, Debug)]
+#[serde(from = "StepDe")]
+struct Step {
+    argv: Vec<String>,
+    cwd: Option<String>,
+    comment: Option<String>,
+    envs: Vec<(String, String)>,
+    interactions: Vec<Interaction>,
+    formatted_snapshot: bool,
+    timeout: Option<u64>,
+    snapshot: bool,
+    tty: bool,
+    continue_on_failure: bool,
+}
+
+impl From<StepDe> for Step {
+    fn from(de: StepDe) -> Self {
+        let table = match de {
+            StepDe::Simple(argv) => StepTable {
+                argv,
+                cwd: None,
+                comment: None,
+                envs: Vec::new(),
+                interactions: Vec::new(),
+                formatted_snapshot: false,
+                timeout: None,
+                snapshot: true,
+                tty: true,
+                continue_on_failure: false,
+            },
+            StepDe::Detailed(table) => table,
+        };
+        Self {
+            argv: table.argv,
+            cwd: table.cwd,
+            comment: table.comment,
+            envs: table.envs,
+            interactions: table.interactions,
+            formatted_snapshot: table.formatted_snapshot,
+            timeout: table.timeout,
+            snapshot: table.snapshot,
+            tty: table.tty,
+            continue_on_failure: table.continue_on_failure,
         }
     }
+}
 
+impl Step {
     /// Shell-escaped command line including any env-var prefix and non-default
     /// cwd, without the comment (e.g. `cd packages/a && MY_ENV=1 vp check`).
     fn display_command_line(&self, default_cwd: &str) -> String {
         let argv_str = self
-            .argv()
+            .argv
             .iter()
             .map(|s| {
                 if s.contains(|c: char| c.is_whitespace() || c == '"') {
@@ -118,19 +157,13 @@ impl Step {
             .collect::<Vec<_>>()
             .join(" ");
 
-        let command = match self {
-            Self::Simple(_) => argv_str,
-            Self::Detailed(config) => {
-                let mut parts = String::new();
-                for (k, v) in &config.envs {
-                    parts.push_str(&format!("{k}={v} "));
-                }
-                parts.push_str(&argv_str);
-                parts
-            }
-        };
+        let mut command = String::new();
+        for (k, v) in &self.envs {
+            command.push_str(&format!("{k}={v} "));
+        }
+        command.push_str(&argv_str);
 
-        let cwd = self.cwd().unwrap_or(default_cwd);
+        let cwd = self.cwd.as_deref().unwrap_or(default_cwd);
         if cwd == default_cwd {
             command
         } else {
@@ -139,67 +172,8 @@ impl Step {
         }
     }
 
-    fn comment(&self) -> Option<&str> {
-        match self {
-            Self::Detailed(config) => config.comment.as_deref(),
-            Self::Simple(_) => None,
-        }
-    }
-
-    fn interactions(&self) -> &[Interaction] {
-        match self {
-            Self::Detailed(config) => &config.interactions,
-            Self::Simple(_) => &[],
-        }
-    }
-
-    fn envs(&self) -> &[(String, String)] {
-        match self {
-            Self::Detailed(config) => &config.envs,
-            Self::Simple(_) => &[],
-        }
-    }
-
-    fn cwd(&self) -> Option<&str> {
-        match self {
-            Self::Detailed(config) => config.cwd.as_deref(),
-            Self::Simple(_) => None,
-        }
-    }
-
-    const fn formatted_snapshot(&self) -> bool {
-        match self {
-            Self::Detailed(config) => config.formatted_snapshot,
-            Self::Simple(_) => false,
-        }
-    }
-
     fn timeout(&self) -> Duration {
-        match self {
-            Self::Detailed(StepConfig { timeout: Some(ms), .. }) => Duration::from_millis(*ms),
-            _ => STEP_TIMEOUT,
-        }
-    }
-
-    const fn snapshot(&self) -> bool {
-        match self {
-            Self::Detailed(config) => config.snapshot,
-            Self::Simple(_) => true,
-        }
-    }
-
-    const fn tty(&self) -> bool {
-        match self {
-            Self::Detailed(config) => config.tty,
-            Self::Simple(_) => true,
-        }
-    }
-
-    const fn continue_on_failure(&self) -> bool {
-        match self {
-            Self::Detailed(config) => config.continue_on_failure,
-            Self::Simple(_) => false,
-        }
+        self.timeout.map_or(STEP_TIMEOUT, Duration::from_millis)
     }
 }
 
@@ -444,19 +418,19 @@ struct CaseHome {
 
 impl CaseHome {
     fn provision(root: &Path, seed_runtime: bool) -> Self {
-        let home = root.join("home");
-        let vp_home = home.join(".vite-plus");
+        let this = Self { home: root.join("home") };
+        let vp_home = this.vp_home();
         std::fs::create_dir_all(&vp_home).unwrap();
         std::fs::create_dir_all(root.join("npm-global/lib")).unwrap();
         // Best-effort: if linking fails, the case downloads the runtime.
         if seed_runtime && let Some(seed) = flavor::js_runtime_seed_dir() {
-            flavor::link_dir(&seed, &vp_home.join("js_runtime"));
+            flavor::link_dir(&seed, &vp_home.join(flavor::JS_RUNTIME_DIR));
         }
-        Self { home }
+        this
     }
 
     fn vp_home(&self) -> PathBuf {
-        self.home.join(".vite-plus")
+        self.home.join(flavor::VP_HOME_DIR)
     }
 
     fn npm_prefix(&self) -> PathBuf {
@@ -554,13 +528,7 @@ fn run_step_piped(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    // Group leader, so a timeout can kill descendants that inherited the
-    // pipes; otherwise the reader threads block on read_to_string forever.
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt as _;
-        cmd.process_group(0);
-    }
+    group_leader(&mut cmd);
     let mut child =
         cmd.spawn().unwrap_or_else(|e| panic!("failed to spawn {}: {e}", program.display()));
 
@@ -579,18 +547,7 @@ fn run_step_piped(
         buf
     });
 
-    let deadline = std::time::Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait().unwrap() {
-            Some(status) => break Some(status),
-            None if std::time::Instant::now() >= deadline => {
-                kill_step_tree(&mut child);
-                let _ = child.wait();
-                break None;
-            }
-            None => std::thread::sleep(Duration::from_millis(20)),
-        }
-    };
+    let status = wait_with_deadline(&mut child, timeout);
 
     let mut output = stdout_thread.join().unwrap();
     output.push_str(&stderr_thread.join().unwrap());
@@ -598,6 +555,70 @@ fn run_step_piped(
         Some(status) => (TerminationState::Exited(i64::from(status.code().unwrap_or(-1))), output),
         None => (TerminationState::TimedOut, output),
     }
+}
+
+/// Marks the command a process-group leader on Unix so a timeout can kill
+/// descendants too (Windows relies on taskkill's tree flag instead).
+fn group_leader(cmd: &mut std::process::Command) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+        cmd.process_group(0);
+    }
+    #[cfg(not(unix))]
+    let _ = cmd;
+}
+
+/// Polls the child until exit or deadline; on deadline the whole tree is
+/// killed so pipe-holding descendants die too. `None` means timed out.
+fn wait_with_deadline(
+    child: &mut std::process::Child,
+    timeout: Duration,
+) -> Option<std::process::ExitStatus> {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Some(status),
+            Err(_) => return None,
+            Ok(None) if std::time::Instant::now() >= deadline => {
+                kill_step_tree(child);
+                let _ = child.wait();
+                return None;
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+        }
+    }
+}
+
+/// Effective env, cwd, and resolved program for one step; shared by the
+/// main and cleanup loops so their semantics cannot drift.
+fn step_context<'a>(
+    step: &Step,
+    case_env: &'a BTreeMap<String, OsString>,
+    case_path: &OsString,
+    stage: &Path,
+    case_cwd: &str,
+    runtime: &FlavorRuntime,
+) -> Result<(std::borrow::Cow<'a, BTreeMap<String, OsString>>, PathBuf, PathBuf), String> {
+    use std::borrow::Cow;
+    assert!(!step.argv.is_empty(), "step argv must not be empty");
+    // Most steps add no env of their own; borrow the case env then.
+    let env: Cow<'a, BTreeMap<String, OsString>> = if step.envs.is_empty() {
+        Cow::Borrowed(case_env)
+    } else {
+        let mut env = case_env.clone();
+        for (k, v) in &step.envs {
+            env.insert(k.clone(), v.into());
+        }
+        Cow::Owned(env)
+    };
+    // Resolution honors a per-step PATH override and runs from the step cwd
+    // (relative PATH entries resolve as the child would see them), so shim
+    // and custom-prefix steps run exactly the child's tool.
+    let path = env.get("PATH").cloned().unwrap_or_else(|| case_path.clone());
+    let cwd = stage.join(step.cwd.as_deref().unwrap_or(case_cwd));
+    let program = runtime.resolve_program(&step.argv[0], &path, &cwd)?;
+    Ok((env, cwd, program))
 }
 
 /// Kills a piped step and every descendant so pipe readers unblock. The
@@ -665,6 +686,11 @@ fn run_case(
     let home_str = case_home.home.to_str().unwrap().to_owned();
     let repo_root = flavor::repo_root();
     let repo_str = repo_root.to_str().unwrap().to_owned();
+    let redactions = [
+        (stage_str.as_str(), "<workspace>"),
+        (home_str.as_str(), "<home>"),
+        (repo_str.as_str(), "<repo>"),
+    ];
 
     let mut doc = String::new();
     doc.push_str(&format!("# {}\n", case.name));
@@ -687,30 +713,13 @@ fn run_case(
     let mut step_index = 0;
     while step_index < case.steps.len() {
         let step = &case.steps[step_index];
-        let argv = step.argv();
-        assert!(!argv.is_empty(), "step argv must not be empty");
-
-        // Most steps add no env of their own; borrow the case env then.
-        let step_env_override;
-        let step_env: &BTreeMap<String, OsString> = if step.envs().is_empty() {
-            &case_env
-        } else {
-            let mut env = case_env.clone();
-            for (k, v) in step.envs() {
-                env.insert(k.clone(), v.into());
-            }
-            step_env_override = env;
-            &step_env_override
-        };
-        // Resolution honors a per-step PATH override and runs from the step
-        // cwd (relative PATH entries resolve as the child would see them),
-        // so shim and custom-prefix steps run exactly the child's tool.
-        let step_path = step_env.get("PATH").cloned().unwrap_or_else(|| case_path.clone());
-        let step_cwd = stage.join(step.cwd().unwrap_or(case.cwd.as_str()));
-        let program = runtime.resolve_program(&argv[0], &step_path, &step_cwd)?;
+        let argv = &step.argv;
+        let (step_env, step_cwd, program) =
+            step_context(step, &case_env, &case_path, &stage, &case.cwd, runtime)?;
+        let step_env: &BTreeMap<String, OsString> = &step_env;
         let timeout = step.timeout();
 
-        let (termination_state, raw_output) = if step.tty() {
+        let (termination_state, raw_output) = if step.tty {
             let mut cmd = CommandBuilder::new(&program);
             for arg in &argv[1..] {
                 cmd.arg(arg);
@@ -723,8 +732,8 @@ fn run_case(
 
             let terminal = TestTerminal::spawn(SCREEN_SIZE, cmd).unwrap();
             let mut killer = terminal.child_handle.clone();
-            let interactions = step.interactions().to_vec();
-            let formatted_snapshot = step.formatted_snapshot();
+            let interactions = step.interactions.clone();
+            let formatted_snapshot = step.formatted_snapshot;
             let output = Arc::new(Mutex::new(String::new()));
             let output_for_thread = Arc::clone(&output);
             let (tx, rx) = mpsc::channel();
@@ -802,7 +811,7 @@ fn run_case(
             }
         } else {
             assert!(
-                step.interactions().is_empty(),
+                step.interactions.is_empty(),
                 "interactions require a PTY; remove `tty = false` or the interactions"
             );
             let (state, raw) = run_step_piped(&program, &argv[1..], step_env, &step_cwd, timeout);
@@ -817,7 +826,7 @@ fn run_case(
         doc.push_str(&step.display_command_line(&case.cwd));
         doc.push_str("`\n\n");
 
-        if let Some(comment) = step.comment() {
+        if let Some(comment) = step.comment.as_deref() {
             doc.push_str(comment);
             doc.push_str("\n\n");
         }
@@ -827,15 +836,7 @@ fn run_case(
         // UPDATE_SNAPSHOTS=1. The error is deferred (not returned here) so
         // the case's `after` cleanup still runs first.
         if matches!(termination_state, TerminationState::TimedOut) {
-            let redacted = redact_output(
-                raw_output,
-                &[
-                    (stage_str.as_str(), "<workspace>"),
-                    (home_str.as_str(), "<home>"),
-                    (repo_str.as_str(), "<repo>"),
-                ],
-                !step.formatted_snapshot(),
-            );
+            let redacted = redact_output(raw_output, &redactions, !step.formatted_snapshot);
             timeout_error = Some(format!(
                 "step `{}` timed out after {timeout:?}; partial output:\n{redacted}",
                 step.display_command_line(&case.cwd),
@@ -853,16 +854,8 @@ fn run_case(
         // always keep their output for diagnosis (legacy ignoreOutput
         // semantics).
         let succeeded = matches!(termination_state, TerminationState::Exited(0));
-        if step.snapshot() || !succeeded {
-            let redacted = redact_output(
-                raw_output,
-                &[
-                    (stage_str.as_str(), "<workspace>"),
-                    (home_str.as_str(), "<home>"),
-                    (repo_str.as_str(), "<repo>"),
-                ],
-                !step.formatted_snapshot(),
-            );
+        if step.snapshot || !succeeded {
+            let redacted = redact_output(raw_output, &redactions, !step.formatted_snapshot);
             doc.push_str(&redacted);
         }
 
@@ -871,8 +864,8 @@ fn run_case(
         // continue-on-failure step (the line terminator in migrated
         // fixtures), and the following line resumes, exactly the legacy
         // model. Hand-written cases without markers stop here entirely.
-        if !succeeded && !step.continue_on_failure() {
-            match case.steps[step_index + 1..].iter().position(Step::continue_on_failure) {
+        if !succeeded && !step.continue_on_failure {
+            match case.steps[step_index + 1..].iter().position(|s| s.continue_on_failure) {
                 Some(offset) => {
                     let skipped = offset + 1;
                     doc.push_str(&format!(
@@ -897,51 +890,24 @@ fn run_case(
     // here too: cleanup often depends on the same PATH/prefix overrides as
     // the step it tears down.
     for step in &case.after {
-        let argv = step.argv();
-        assert!(!argv.is_empty(), "after-step argv must not be empty");
-        let after_env_override;
-        let after_env: &BTreeMap<String, OsString> = if step.envs().is_empty() {
-            &case_env
-        } else {
-            let mut env = case_env.clone();
-            for (k, v) in step.envs() {
-                env.insert(k.clone(), v.into());
-            }
-            after_env_override = env;
-            &after_env_override
+        let Ok((after_env, after_cwd, program)) =
+            step_context(step, &case_env, &case_path, &stage, &case.cwd, runtime)
+        else {
+            continue;
         };
-        let after_path = after_env.get("PATH").cloned().unwrap_or_else(|| case_path.clone());
-        let after_cwd = stage.join(step.cwd().unwrap_or(case.cwd.as_str()));
-        if let Ok(program) = runtime.resolve_program(&argv[0], &after_path, &after_cwd) {
-            let mut cmd = std::process::Command::new(program);
-            cmd.args(&argv[1..])
-                .env_clear()
-                .envs(after_env)
-                .current_dir(&after_cwd)
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null());
-            #[cfg(unix)]
-            {
-                use std::os::unix::process::CommandExt as _;
-                cmd.process_group(0);
-            }
-            // Cleanup honors the step timeout (output is discarded either
-            // way), so a hung teardown can never wedge the whole suite.
-            if let Ok(mut child) = cmd.spawn() {
-                let deadline = std::time::Instant::now() + step.timeout();
-                loop {
-                    match child.try_wait() {
-                        Ok(Some(_)) | Err(_) => break,
-                        Ok(None) if std::time::Instant::now() >= deadline => {
-                            kill_step_tree(&mut child);
-                            let _ = child.wait();
-                            break;
-                        }
-                        Ok(None) => std::thread::sleep(Duration::from_millis(20)),
-                    }
-                }
-            }
+        let mut cmd = std::process::Command::new(program);
+        cmd.args(&step.argv[1..])
+            .env_clear()
+            .envs(after_env.as_ref())
+            .current_dir(&after_cwd)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        group_leader(&mut cmd);
+        // Cleanup honors the step timeout (output is discarded either way),
+        // so a hung teardown can never wedge the whole suite.
+        if let Ok(mut child) = cmd.spawn() {
+            let _ = wait_with_deadline(&mut child, step.timeout());
         }
     }
 
@@ -1003,17 +969,29 @@ fn main() {
         .map(|v| v.split(',').map(|s| s.trim().to_owned()).collect())
         .unwrap_or_default();
 
-    // Provision each flavor at most once per run; individual trials surface
-    // the error message when their flavor is unavailable.
-    let mut runtimes: BTreeMap<&'static str, Arc<Result<FlavorRuntime, String>>> = BTreeMap::new();
-    let mut runtime_for = |flavor: Flavor| -> Arc<Result<FlavorRuntime, String>> {
-        let tmp = &tmp_dir_path;
-        Arc::clone(
-            runtimes
-                .entry(flavor.as_str())
-                .or_insert_with(|| Arc::new(flavor::provision(flavor, tmp))),
-        )
-    };
+    // Provisioning is lazy and per-flavor: list phases and filtered runs
+    // provision nothing, and nextest's one-trial-per-process model only pays
+    // for the flavor that trial actually uses. Individual trials surface the
+    // error message when their flavor is unavailable.
+    struct LazyRuntimes {
+        run_root: Arc<Path>,
+        global: std::sync::OnceLock<Result<FlavorRuntime, String>>,
+        local: std::sync::OnceLock<Result<FlavorRuntime, String>>,
+    }
+    impl LazyRuntimes {
+        fn get(&self, flavor: Flavor) -> &Result<FlavorRuntime, String> {
+            let cell = match flavor {
+                Flavor::Global => &self.global,
+                Flavor::Local => &self.local,
+            };
+            cell.get_or_init(|| flavor::provision(flavor, &self.run_root))
+        }
+    }
+    let runtimes = Arc::new(LazyRuntimes {
+        run_root: Arc::clone(&tmp_dir_path),
+        global: std::sync::OnceLock::new(),
+        local: std::sync::OnceLock::new(),
+    });
 
     let mut tests: Vec<libtest_mimic::Trial> = Vec::new();
     for fixture_path in fixture_paths {
@@ -1042,7 +1020,7 @@ fn main() {
                 } else {
                     format!("{}.md", case.name)
                 };
-                let runtime = runtime_for(flavor);
+                let runtimes = Arc::clone(&runtimes);
                 let fixture_path = Arc::clone(&fixture_path);
                 let fixture_name = Arc::clone(&fixture_name);
                 let tmp_dir_path = Arc::clone(&tmp_dir_path);
@@ -1050,7 +1028,7 @@ fn main() {
                 let ignored = case.ignore;
                 tests.push(
                     libtest_mimic::Trial::test(trial_name, move || {
-                        let runtime = match &*runtime {
+                        let runtime = match runtimes.get(flavor) {
                             Ok(runtime) => runtime,
                             Err(message) => return Err(message.clone().into()),
                         };
