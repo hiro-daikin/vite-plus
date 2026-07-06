@@ -546,16 +546,23 @@ fn run_step_piped(
 ) -> (TerminationState, String) {
     use std::process::{Command, Stdio};
 
-    let mut child = Command::new(program)
-        .args(args)
+    let mut cmd = Command::new(program);
+    cmd.args(args)
         .env_clear()
         .envs(envs)
         .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap_or_else(|e| panic!("failed to spawn {}: {e}", program.display()));
+        .stderr(Stdio::piped());
+    // Group leader, so a timeout can kill descendants that inherited the
+    // pipes; otherwise the reader threads block on read_to_string forever.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+        cmd.process_group(0);
+    }
+    let mut child =
+        cmd.spawn().unwrap_or_else(|e| panic!("failed to spawn {}: {e}", program.display()));
 
     let mut stdout_pipe = child.stdout.take().unwrap();
     let mut stderr_pipe = child.stderr.take().unwrap();
@@ -577,7 +584,7 @@ fn run_step_piped(
         match child.try_wait().unwrap() {
             Some(status) => break Some(status),
             None if std::time::Instant::now() >= deadline => {
-                let _ = child.kill();
+                kill_step_tree(&mut child);
                 let _ = child.wait();
                 break None;
             }
@@ -591,6 +598,20 @@ fn run_step_piped(
         Some(status) => (TerminationState::Exited(i64::from(status.code().unwrap_or(-1))), output),
         None => (TerminationState::TimedOut, output),
     }
+}
+
+/// Kills a piped step and every descendant so pipe readers unblock. The
+/// child was spawned as a process-group leader on Unix; Windows uses
+/// taskkill's tree flag.
+fn kill_step_tree(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    let _ =
+        std::process::Command::new("kill").args(["-KILL", &format!("-{}", child.id())]).output();
+    #[cfg(windows)]
+    let _ = std::process::Command::new("taskkill")
+        .args(["/PID", &child.id().to_string(), "/T", "/F"])
+        .output();
+    let _ = child.kill();
 }
 
 #[expect(
@@ -927,6 +948,9 @@ fn main() {
         std::fs::create_dir_all(&scoped).unwrap();
         flavor::link_dir(&repo_root.join("packages/cli"), &node_modules.join("vite-plus"));
         flavor::link_dir(&repo_root.join("packages/core"), &scoped.join("vite-plus-core"));
+        // `vite` resolves to the core package, matching the vite -> core
+        // override installed in migrated projects.
+        flavor::link_dir(&repo_root.join("packages/core"), &node_modules.join("vite"));
     }
 
     let fixtures_dir = flavor::manifest_dir().join("tests/cli_snapshots/fixtures");

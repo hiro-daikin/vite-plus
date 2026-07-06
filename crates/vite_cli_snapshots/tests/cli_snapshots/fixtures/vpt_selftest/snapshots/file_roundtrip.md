@@ -108,6 +108,38 @@ empty pipe-stdin data means empty stdin, not a bare newline
 hello
 ```
 
+## `vpt touch-file multi-a.txt multi-b.txt`
+
+touch-file creates every operand
+
+```
+```
+
+## `vpt stat-file multi-b.txt`
+
+```
+multi-b.txt: file
+```
+
+## `vpt mkdir existing-dir`
+
+```
+```
+
+## `vpt cp -r notes existing-dir`
+
+cp -r into an existing directory nests like real cp
+
+```
+```
+
+## `vpt list-dir existing-dir/notes`
+
+```
+created-by-touch.txt
+hello.txt
+```
+
 ## `vpt exit 3`
 
 Nonzero exit codes are recorded in the snapshot.

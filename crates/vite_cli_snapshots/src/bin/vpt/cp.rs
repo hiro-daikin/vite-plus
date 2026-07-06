@@ -11,7 +11,13 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         if !recursive {
             return Err("copying a directory requires -r".into());
         }
-        copy_dir_recursive(src, dst)?;
+        // `cp -r dir existing-dir` creates existing-dir/dir, like real cp.
+        let target = if dst.is_dir() {
+            dst.join(src.file_name().ok_or("source has no file name")?)
+        } else {
+            dst.to_path_buf()
+        };
+        copy_dir_recursive(src, &target)?;
     } else {
         // `cp file existing-dir` copies INTO the directory, like real cp.
         let target = if dst.is_dir() {

@@ -114,18 +114,26 @@ fn local_cli_bin_dir() -> Result<PathBuf, String> {
     // override, which points at another checkout on purpose.
     if overridden.is_none() && std::env::var_os("GITHUB_ACTIONS").is_none() {
         // packages/core shares the freshness requirement: it is linked into
-        // the run-root node_modules and its exports load its dist.
+        // the run-root node_modules and its exports load its dist. prompts
+        // has no dist of its own; it is bundled into the CLI dist.
         let cli_pkg = bin_dir.parent().unwrap().to_path_buf();
         let core_pkg = repo_root().join("packages/core");
-        for pkg in [cli_pkg, core_pkg] {
-            if let (Some(src), Some(dist)) =
-                (newest_mtime(&pkg.join("src")), newest_mtime(&pkg.join("dist")))
+        let checks = [
+            (cli_pkg.join("src"), cli_pkg.join("dist"), "packages/cli"),
+            (core_pkg.join("src"), core_pkg.join("dist"), "packages/core"),
+            (
+                repo_root().join("packages/prompts/src"),
+                cli_pkg.join("dist"),
+                "packages/prompts (bundled into packages/cli/dist)",
+            ),
+        ];
+        for (src_dir, dist_dir, label) in checks {
+            if let (Some(src), Some(dist)) = (newest_mtime(&src_dir), newest_mtime(&dist_dir))
                 && src > dist
             {
                 return Err(format!(
-                    "{} has a dist older than its src; run `pnpm build`, or set \
-                     VP_SNAP_SKIP_FLAVORS=local to skip local-flavor cases",
-                    pkg.display()
+                    "{label} sources are newer than the built dist; run `pnpm build`, or set \
+                     VP_SNAP_SKIP_FLAVORS=local to skip local-flavor cases"
                 ));
             }
         }
