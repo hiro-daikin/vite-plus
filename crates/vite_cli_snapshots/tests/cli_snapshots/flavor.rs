@@ -268,6 +268,15 @@ pub fn provision(flavor: Flavor, run_root: &Path) -> Result<FlavorRuntime, Strin
             for name in ["vp", "vpr", "vpx"] {
                 install_tool(&bin_dir, name, &vp)?;
             }
+            // Windows `vp env setup` looks for the trampoline template
+            // (vp-shim.exe) beside vp.exe; carry it over when the source
+            // build has one, so shim-creating cases work.
+            #[cfg(windows)]
+            if let Some(shim) = vp.parent().map(|dir| dir.join("vp-shim.exe"))
+                && shim.is_file()
+            {
+                let _ = std::fs::copy(&shim, bin_dir.join("vp-shim.exe"));
+            }
             Some(repo_root().join("packages/cli/dist"))
         }
         Flavor::Local => {
@@ -298,6 +307,7 @@ impl FlavorRuntime {
         &self,
         program: &str,
         case_path: &std::ffi::OsStr,
+        cwd: &Path,
     ) -> Result<PathBuf, String> {
         match program {
             "vp" | "vpr" | "vpx" | "oxfmt" | "oxlint" => {
@@ -306,14 +316,14 @@ impl FlavorRuntime {
                 // on that PATH too, so this is a pure precedence rule; the
                 // direct bin-dir lookup below only remains as the fallback
                 // for cases that override PATH entirely.
-                if let Ok(found) = which::which_in(program, Some(case_path), PathBuf::from(".")) {
+                if let Ok(found) = which::which_in(program, Some(case_path), cwd) {
                     return Ok(found);
                 }
                 self.bin_dir_tool(program)
             }
             "vpt" => self.bin_dir_tool(program),
             "node" | "git" | "npm" | "pnpm" | "yarn" | "bun" => {
-                which::which_in(program, Some(case_path), PathBuf::from("."))
+                which::which_in(program, Some(case_path), cwd)
                     .map_err(|e| format!("`{program}` not found on the case PATH: {e}"))
             }
             other => Err(format!(

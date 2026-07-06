@@ -576,12 +576,15 @@ function migrateCase(
   // Write the fixture: everything except steps.json and snap.txt carries over.
   const fixtureDir = path.join(outDir, newName);
   fs.mkdirSync(fixtureDir, { recursive: true });
+  // Only the ROOT metadata files are omitted; a project file that happens
+  // to be named snap.txt or steps.json in a subdirectory carries over.
+  const rootMetadata = new Set([
+    path.resolve(caseDir, 'steps.json'),
+    path.resolve(caseDir, 'snap.txt'),
+  ]);
   fs.cpSync(caseDir, fixtureDir, {
     recursive: true,
-    filter: (src) => {
-      const base = path.basename(src);
-      return base !== 'steps.json' && base !== 'snap.txt';
-    },
+    filter: (src) => !rootMetadata.has(path.resolve(src)),
   });
   fs.writeFileSync(path.join(fixtureDir, 'snapshots.toml'), `${lines.join('\n')}\n`);
   return report;

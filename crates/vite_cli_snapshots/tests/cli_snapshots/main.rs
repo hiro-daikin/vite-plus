@@ -702,11 +702,12 @@ fn run_case(
             step_env_override = env;
             &step_env_override
         };
-        // Resolution honors a per-step PATH override, so steps testing shims
-        // or custom prefixes run exactly the tool the child would see.
+        // Resolution honors a per-step PATH override and runs from the step
+        // cwd (relative PATH entries resolve as the child would see them),
+        // so shim and custom-prefix steps run exactly the child's tool.
         let step_path = step_env.get("PATH").cloned().unwrap_or_else(|| case_path.clone());
-        let program = runtime.resolve_program(&argv[0], &step_path)?;
         let step_cwd = stage.join(step.cwd().unwrap_or(case.cwd.as_str()));
+        let program = runtime.resolve_program(&argv[0], &step_path, &step_cwd)?;
         let timeout = step.timeout();
 
         let (termination_state, raw_output) = if step.tty() {
@@ -910,12 +911,13 @@ fn run_case(
             &after_env_override
         };
         let after_path = after_env.get("PATH").cloned().unwrap_or_else(|| case_path.clone());
-        if let Ok(program) = runtime.resolve_program(&argv[0], &after_path) {
+        let after_cwd = stage.join(step.cwd().unwrap_or(case.cwd.as_str()));
+        if let Ok(program) = runtime.resolve_program(&argv[0], &after_path, &after_cwd) {
             let mut cmd = std::process::Command::new(program);
             cmd.args(&argv[1..])
                 .env_clear()
                 .envs(after_env)
-                .current_dir(stage.join(step.cwd().unwrap_or(case.cwd.as_str())))
+                .current_dir(&after_cwd)
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null());
