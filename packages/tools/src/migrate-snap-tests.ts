@@ -1,6 +1,6 @@
 /**
  * One-click migration of old snap-test cases (steps.json + fixture files) to
- * the new PTY snapshot harness (crates/vite_cli_snapshots fixtures with
+ * the new PTY snapshot suite (crates/vite_cli_snapshots fixtures with
  * snapshots.toml), following the mapping in rfcs/interactive-snapshot-tests.md.
  *
  * Usage:
@@ -28,7 +28,7 @@ interface NewStep {
   continueOnFailure?: boolean;
 }
 
-/** New-harness fixture/case names allow only `[A-Za-z0-9_]`. */
+/** New-runner fixture/case names allow only `[A-Za-z0-9_]`. */
 function fixtureName(caseName: string): string {
   return caseName.replaceAll(/[^A-Za-z0-9_]/g, '_');
 }
@@ -395,7 +395,7 @@ function translateCommand(raw: string, ctx: TranslationContext): NewStep[] {
     steps[0].comment = steps[0].comment ? `${comment}; ${steps[0].comment}` : comment;
   }
   // Legacy command LINES were independent (a failure did not stop the next
-  // line), while `&&` within a line short-circuited. The harness stops on
+  // line), while `&&` within a line short-circuited. The runner stops on
   // failure by default, so only the line-final step opts back out; chain-
   // internal failures still stop, exactly like the shell did.
   if (steps.length > 0) {
@@ -521,7 +521,7 @@ function migrateCase(
     report.notes.push('dropped `serial: true` (per-case VP_HOME isolation replaces it)');
   }
   if (old.linkCheckoutPackages) {
-    report.todos.push('`linkCheckoutPackages` is not supported by the new harness yet');
+    report.todos.push('`linkCheckoutPackages` is not supported by the new suite yet');
   }
 
   const stepLines: string[] = [];
@@ -546,11 +546,11 @@ function migrateCase(
   }
   if (old.localVitePlusPackages || ctx.localRegistry) {
     lines.push('local-registry = true');
-    // The harness has no local-registry support yet; keep the generated case
+    // The runner has no local-registry support yet; keep the generated case
     // out of default runs so a migrated batch stays green meanwhile.
     lines.push('ignore = true');
     report.todos.push(
-      '`local-registry` cases are not supported by the new harness yet (generated with `ignore = true`)',
+      '`local-registry` cases are not supported by the new suite yet (generated with `ignore = true`)',
     );
   }
   lines.push('steps = [', ...stepLines, ']');
@@ -656,7 +656,7 @@ export function migrateSnapTests(): void {
     reportLines.push('');
   }
   // The report lives next to the fixtures dir, not inside it: everything
-  // inside `fixtures/` is treated as a fixture by the harness.
+  // inside `fixtures/` is treated as a fixture by the runner.
   const reportPath = path.join(outDir, '..', 'MIGRATION-REPORT.md');
   fs.writeFileSync(reportPath, reportLines.join('\n'));
   const migrated = reports.filter((r) => !r.skipped).length;

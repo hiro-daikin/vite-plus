@@ -49,7 +49,7 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      # snapshots is OR-ed in because the PTY harness stores its assertions
+      # snapshots is OR-ed in because the PTY runner stores its assertions
       # as .md files (fixtures/**/snapshots/*.md), which the code filter's
       # markdown exclusion would otherwise classify as docs-only.
       code-changed: ${{ steps.filter.outputs.code == 'true' || steps.filter.outputs.snapshots == 'true' }}
@@ -208,7 +208,7 @@ jobs:
           path: windows-tests.tar.zst
           retention-days: 7
 
-      # Separate archive for the PTY snapshot harness (excluded from the
+      # Separate archive for the PTY snapshot suite (excluded from the
       # unit-test archive above): its suite needs vp, node, and a built
       # packages/cli/dist at runtime, which only cli-snapshot-test-windows
       # provides. The archive carries the cli_snapshots test binary plus the
@@ -1027,7 +1027,7 @@ jobs:
         env:
           RUST_MIN_STACK: 8388608
 
-  # Runs the PTY snapshot harness (crates/vite_cli_snapshots) with BOTH vp
+  # Runs the PTY snapshot suite (crates/vite_cli_snapshots) with BOTH vp
   # flavors on Linux and macOS: the local flavor uses the packages/cli build
   # from this job, the global flavor reuses the installed release binary via
   # VP_SNAP_GLOBAL_VP (no vite_global_cli compile; build-upstream builds or
@@ -1088,7 +1088,7 @@ jobs:
         env:
           RUST_BACKTRACE: '1'
 
-  # Runs the PTY snapshot harness (crates/vite_cli_snapshots) on Windows with
+  # Runs the PTY snapshot suite (crates/vite_cli_snapshots) on Windows with
   # BOTH vp flavors, without a Rust toolchain on the runner: the test binary
   # and vpt arrive cross-compiled in the nextest archive from
   # build-windows-tests, the global vp comes prebuilt from build-windows-cli,
@@ -1170,7 +1170,7 @@ jobs:
         shell: bash
         run: |
           # current/bin, not bin: on Windows bin\vp.exe is the trampoline,
-          # which re-execs %VP_HOME%\current\bin\vp.exe; the harness gives
+          # which re-execs %VP_HOME%\current\bin\vp.exe; the runner gives
           # each case an isolated VP_HOME with no install inside, so the
           # trampoline would fail. current\bin\vp.exe is the real CLI.
           export VP_SNAP_GLOBAL_VP="$USERPROFILE/.vite-plus/current/bin/vp.exe"

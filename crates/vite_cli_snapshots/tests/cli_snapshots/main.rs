@@ -1,4 +1,4 @@
-//! PTY-based snapshot test harness for the vp CLI.
+//! PTY-based snapshot test suite for the vp CLI.
 //!
 //! Fixtures live in `tests/cli_snapshots/fixtures/<name>/`; each declares
 //! cases in `snapshots.toml` (see `rfcs/interactive-snapshot-tests.md`).
@@ -7,12 +7,12 @@
 //! Snapshots are Markdown files compared with real pass/fail semantics
 //! (`UPDATE_SNAPSHOTS=1` accepts changes).
 //!
-//! The harness deliberately uses std types: it is a dev-only test binary,
-//! matching the conventions of vite-task's `e2e_snapshots` harness it is
+//! The runner deliberately uses std types: it is a dev-only test binary,
+//! matching the conventions of vite-task's `e2e_snapshots` runner it is
 //! ported from.
-#![expect(clippy::disallowed_types, reason = "standalone test harness uses std types")]
-#![expect(clippy::disallowed_macros, reason = "standalone test harness uses std macros")]
-#![expect(clippy::disallowed_methods, reason = "standalone test harness uses std methods")]
+#![expect(clippy::disallowed_types, reason = "standalone test runner uses std types")]
+#![expect(clippy::disallowed_macros, reason = "standalone test runner uses std macros")]
+#![expect(clippy::disallowed_methods, reason = "standalone test runner uses std methods")]
 
 mod flavor;
 mod redact;
@@ -365,7 +365,7 @@ struct Case {
     /// provisioning tests set false to start from a genuinely empty home.
     #[serde(default = "default_true", rename = "seed-runtime")]
     seed_runtime: bool,
-    /// Case-wide environment additions on top of the harness baseline.
+    /// Case-wide environment additions on top of the runner baseline.
     #[serde(default)]
     env: BTreeMap<String, String>,
     /// Baseline environment variables to remove for this case.
@@ -471,17 +471,17 @@ impl CaseHome {
 fn baseline_env(rt: &FlavorRuntime, case_home: &CaseHome) -> BTreeMap<String, OsString> {
     let mut env: BTreeMap<String, OsString> = BTreeMap::new();
     // The case's VP_HOME/bin comes first so `vp env setup` shims take
-    // precedence over the harness-provided tools once a case creates them.
+    // precedence over the runner-provided tools once a case creates them.
     let mut path_entries = vec![case_home.vp_home().join("bin")];
     path_entries.extend(std::env::split_paths(&rt.path_env));
     env.insert("PATH".into(), std::env::join_paths(path_entries).unwrap());
     // xterm-256color keeps anstream from stripping the OSC 8 milestone
-    // sequences the harness synchronizes on.
+    // sequences the runner synchronizes on.
     env.insert("TERM".into(), "xterm-256color".into());
     env.insert("VP_CLI_TEST".into(), "1".into());
     env.insert("VP_EMIT_MILESTONES".into(), "1".into());
     env.insert("NODE_NO_WARNINGS".into(), "1".into());
-    // Legacy-harness parity: `vp migrate` fixtures skip real dependency
+    // Legacy-runner parity: `vp migrate` fixtures skip real dependency
     // installs (slow, network-bound). Cases that want real installs unset
     // this via `unset-env`.
     env.insert("VP_SKIP_INSTALL".into(), "1".into());
@@ -618,7 +618,7 @@ fn run_case(
     let case_root = tmpdir.join(format!("{fixture_name}_case_{case_index}_{}", flavor.as_str()));
     let stage = case_root.join("workspace");
     std::fs::create_dir_all(&stage).unwrap();
-    // The case definition and recorded snapshots are harness metadata, not
+    // The case definition and recorded snapshots are runner metadata, not
     // part of the workspace under test, so they are never copied in.
     CopyOptions::new()
         .filter(|path, _| Ok(path != Path::new("snapshots") && path != Path::new("snapshots.toml")))
@@ -943,7 +943,7 @@ fn main() {
 
     let mut args = libtest_mimic::Arguments::from_args();
     // On Linux, parallel PTY + signal-routing contention makes ctrl-c cases
-    // flaky (inherited from the vite-task harness; scoping this serialization
+    // flaky (inherited from vite-task's snapshot suite; scoping this serialization
     // is an open question in the RFC).
     if cfg!(target_os = "linux") && args.test_threads.is_none() {
         args.test_threads = Some(1);

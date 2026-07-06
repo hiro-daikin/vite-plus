@@ -1,6 +1,6 @@
 /// probe
 ///
-/// Interactive payload for harness self-tests: proves milestone
+/// Interactive payload for runner self-tests: proves milestone
 /// synchronization, keystroke delivery, and screen capture end-to-end without
 /// requiring milestone instrumentation in the product CLI. Prints a question,
 /// marks `probe:ask`, reads a line, greets, then marks `probe:done`.

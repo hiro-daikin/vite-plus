@@ -138,9 +138,9 @@ You can run this command to build, test and check if there are any snapshot chan
 pnpm bootstrap-cli && pnpm test && git status
 ```
 
-## CLI Snapshot Tests (PTY harness)
+## CLI Snapshot Tests (PTY runner)
 
-CLI output and interactive flows (prompts, pickers, keystrokes, ctrl-c) are tested with the PTY snapshot harness in `crates/vite_cli_snapshots/`. Every step runs in a real pseudo-terminal; snapshots are Markdown files compared with real pass/fail semantics. **Write new CLI tests here**, one fixture directory per scenario with a `snapshots.toml` declaring the cases.
+CLI output and interactive flows (prompts, pickers, keystrokes, ctrl-c) are tested with the PTY snapshot suite in `crates/vite_cli_snapshots/`. Every step runs in a real pseudo-terminal; snapshots are Markdown files compared with real pass/fail semantics. **Write new CLI tests here**, one fixture directory per scenario with a `snapshots.toml` declaring the cases.
 
 ```bash
 # Build vp and run the whole suite
@@ -157,7 +157,7 @@ The full case/step/interaction reference (including the `vpt` helper tool and mi
 
 ## Running Snap Tests (legacy)
 
-The legacy snap trees in `packages/cli/snap-tests/` (local CLI) and `packages/cli/snap-tests-global/` (global CLI) still run in CI while they are migrated to the PTY harness (`tool migrate-snap-tests`). Do not add new cases to them.
+The legacy snap trees in `packages/cli/snap-tests/` (local CLI) and `packages/cli/snap-tests-global/` (global CLI) still run in CI while they are migrated to the PTY runner (`tool migrate-snap-tests`). Do not add new cases to them.
 
 ```bash
 # Run all snap tests (local + global)

@@ -41,7 +41,7 @@ pub struct FlavorRuntime {
     pub path_env: OsString,
 }
 
-/// The harness crate's manifest dir. The runtime env var wins: cargo sets it
+/// The runner crate's manifest dir. The runtime env var wins: cargo sets it
 /// for test processes, and nextest rewrites it when running a relocated
 /// archive (`--workspace-remap`), where the compile-time path is a
 /// build-machine path that no longer exists.
@@ -109,7 +109,7 @@ fn local_cli_bin_dir() -> Result<PathBuf, String> {
         ));
     }
     // A stale dist silently tests old code; fail fast when sources are newer
-    // (the legacy harness did the same for the global binary via mtimes).
+    // (the legacy runner did the same for the global binary via mtimes).
     // Skipped in CI, where dist is always freshly built, and under the
     // override, which points at another checkout on purpose.
     if overridden.is_none() && std::env::var_os("GITHUB_ACTIONS").is_none() {
@@ -294,7 +294,7 @@ impl FlavorRuntime {
         match program {
             "vp" | "vpr" | "vpx" | "oxfmt" | "oxlint" => {
                 // Case PATH first: shims a case creates in $VP_HOME/bin must
-                // shadow the harness-installed aliases. The flavor bin dir is
+                // shadow the runner-installed aliases. The flavor bin dir is
                 // on that PATH too, so this is a pure precedence rule; the
                 // direct bin-dir lookup below only remains as the fallback
                 // for cases that override PATH entirely.

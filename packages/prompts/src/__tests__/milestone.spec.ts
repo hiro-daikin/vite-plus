@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const originalEnv = process.env.VP_EMIT_MILESTONES;
 
-// The enabled flag is cached at module load (the harness sets the env before
+// The enabled flag is cached at module load (the runner sets the env before
 // spawning the CLI), so each test imports a fresh module copy under its env.
 async function loadMilestone(value: string | undefined) {
   vi.resetModules();

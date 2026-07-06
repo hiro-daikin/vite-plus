@@ -6,7 +6,7 @@ edition.workspace = true
 license.workspace = true
 publish = false
 rust-version.workspace = true
-description = "PTY-based CLI snapshot test harness for vite-plus (dev-only, never packaged)"
+description = "PTY-based CLI snapshot test suite for vite-plus (dev-only, never packaged)"
 
 [[bin]]
 name = "vpt"

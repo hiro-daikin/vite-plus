@@ -1,4 +1,4 @@
-# CLI snapshot tests (PTY harness)
+# CLI snapshot tests (PTY runner)
 
 This is the snapshot test suite for the `vp` CLI. Every step runs inside a
 real pseudo-terminal backed by a vt100 emulator, so interactive flows
@@ -6,7 +6,7 @@ real pseudo-terminal backed by a vt100 emulator, so interactive flows
 Snapshots are Markdown files with real pass/fail semantics.
 
 **Write new CLI tests here.** The legacy trees (`packages/cli/snap-tests/`,
-`packages/cli/snap-tests-global/`) are being migrated to this harness and
+`packages/cli/snap-tests-global/`) are being migrated to this suite and
 must not receive new cases. Design rationale: `rfcs/interactive-snapshot-tests.md`.
 
 ## Quick start
@@ -53,7 +53,7 @@ cargo test -p vite_cli_snapshots -- <filter>      # if vp is already built
 Trial names are `<fixture>::<case>` (plus `::<flavor>` for multi-flavor
 cases). Prerequisites: the global flavor needs `cargo build -p
 vite_global_cli` (the `just` recipe does it); the local flavor needs `node`
-and a built `packages/cli/dist` (`pnpm build`); the harness fails fast when
+and a built `packages/cli/dist` (`pnpm build`); the runner fails fast when
 `dist` is older than `src`, so a forgotten rebuild never silently tests
 stale local-CLI code.
 
@@ -123,7 +123,7 @@ self-tests), `vpt check-tty`, `vpt read-stdin`, `vpt exit <code>`,
 ## Interactive cases
 
 Interactive steps script keystrokes synchronized on milestones: invisible
-markers the CLI emits at deterministic render points (only when the harness
+markers the CLI emits at deterministic render points (only when the runner
 sets `VP_EMIT_MILESTONES=1`). Waiting is always on a named milestone, never
 on sleeps or output polling; that is what keeps keystroke-driven UI
 deterministic.
@@ -158,7 +158,7 @@ non-prompt sync point (`dev-server:ready` style), keep the name a pure
 function of the rendered state.
 
 `vpt probe` is a self-contained interactive payload useful for testing the
-harness itself (see `fixtures/interactive_probe/`).
+runner itself (see `fixtures/interactive_probe/`).
 
 ## What a step sees
 
@@ -171,7 +171,7 @@ interactively by default, which is the point. `seed-runtime = true`
 `VP_HOME` so commands do not download ~50MB per case.
 
 Fixture configs may import bare `vite-plus` and
-`@voidzero-dev/vite-plus-core`: the harness links the checkout packages
+`@voidzero-dev/vite-plus-core`: the runner links the checkout packages
 into the run root's `node_modules`, where Node's upward walk finds them
 from any staged workspace. Anything else a fixture imports must be
 vendored inside the fixture itself.
@@ -187,7 +187,7 @@ green. Set
 
 Fixture trees are excluded from repo-wide fmt, lint, typecheck, and vitest
 (`vite.config.ts`, `tsconfig.json`); recorded snapshots and
-`snapshots.toml` are harness metadata and never appear inside the staged
+`snapshots.toml` are runner metadata and never appear inside the staged
 workspace a test runs in.
 
 ## Migrating a legacy case

@@ -81,10 +81,10 @@ test:
   $packages = Get-ChildItem -Path crates -Directory | Where-Object { $_.Name -ne 'vite_cli_snapshots' } | ForEach-Object { '-p'; $_.Name }; $Env:RUST_MIN_STACK='8388608'; $Env:__COMPAT_LAYER='RunAsInvoker'; cargo test @packages -p vite-plus-cli
 
 # PTY-based CLI snapshot tests (crates/vite_cli_snapshots). Builds the global
-# binary first so the harness never tests a stale build. Filter by trial name
+# binary first so the runner never tests a stale build. Filter by trial name
 # substring: `just snapshot-test create`. Accept snapshot changes with
 # `UPDATE_SNAPSHOTS=1 just snapshot-test`. Local-flavor cases additionally
-# need a built packages/cli (`pnpm build`); the harness fails fast when dist
+# need a built packages/cli (`pnpm build`); the runner fails fast when dist
 # is missing or stale. Use snapshot-test-global on checkouts without one.
 snapshot-test *args='':
   cargo build -p vite_global_cli
