@@ -140,6 +140,36 @@ created-by-touch.txt
 hello.txt
 ```
 
+## `vpt grep-file notes/hello.txt 'from vpt'`
+
+grep-file succeeds on a match
+
+```
+notes/hello.txt: found "from vpt"
+```
+
+## `vpt grep-file notes/hello.txt 'absent text'`
+
+grep-file fails like grep when the pattern is absent
+
+**Exit code:** 1
+
+```
+notes/hello.txt: missing "absent text"
+pattern not found
+```
+
+## `vpt print-file no-such-file.txt`
+
+print-file fails like cat on a missing operand
+
+**Exit code:** 1
+
+```
+no-such-file.txt: not found
+missing file
+```
+
 ## `vpt exit 3`
 
 Nonzero exit codes are recorded in the snapshot.

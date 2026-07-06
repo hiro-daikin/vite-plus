@@ -54,10 +54,7 @@ fn main() {
         "cp" => cp::run(&args[2..]),
         "exit" => exit::run(&args[2..]),
         "exit-on-ctrlc" => exit_on_ctrlc::run(),
-        "grep-file" => {
-            grep_file::run(&args[2..]);
-            Ok(())
-        }
+        "grep-file" => grep_file::run(&args[2..]),
         "json-edit" => json_edit::run(&args[2..]),
         "list-dir" => list_dir::run(&args[2..]),
         "mkdir" => mkdir::run(&args[2..]),

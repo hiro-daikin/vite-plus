@@ -23,5 +23,8 @@ steps = [
   ["vpt", "mkdir", "existing-dir"],
   { argv = ["vpt", "cp", "-r", "notes", "existing-dir"], comment = "cp -r into an existing directory nests like real cp" },
   ["vpt", "list-dir", "existing-dir/notes"],
+  { argv = ["vpt", "grep-file", "notes/hello.txt", "from vpt"], comment = "grep-file succeeds on a match" },
+  { argv = ["vpt", "grep-file", "notes/hello.txt", "absent text"], comment = "grep-file fails like grep when the pattern is absent", continue-on-failure = true },
+  { argv = ["vpt", "print-file", "no-such-file.txt"], comment = "print-file fails like cat on a missing operand", continue-on-failure = true },
   { argv = ["vpt", "exit", "3"], comment = "Nonzero exit codes are recorded in the snapshot." },
 ]

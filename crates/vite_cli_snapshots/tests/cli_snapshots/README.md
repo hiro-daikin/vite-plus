@@ -106,8 +106,11 @@ A step is a bare argv array or a table:
 ```
 
 `argv[0]` may be `vp`, `vpr`, `vpx`, `vpt`, `oxfmt`, `oxlint`, `node`,
-`git`, `npm`, `pnpm`, `yarn`, or `bun`. There is no shell: no `&&`, no
-redirects, no globs. File setup and assertions go through `vpt` so behavior
+`git`, `npm`, `pnpm`, `yarn`, or `bun`. `oxfmt`/`oxlint` are JS shims from
+the local CLI build, so they exist under the local flavor only; a global
+case uses `vp fmt` / `vp lint` (what global-binary users run) or a shim
+the case itself creates. There is no shell: no `&&`, no redirects, no
+globs. File setup and assertions go through `vpt` so behavior
 is identical on every platform:
 
 `vpt print-file` (cat), `vpt stat-file` (prints `file`/`dir`/`missing`;
