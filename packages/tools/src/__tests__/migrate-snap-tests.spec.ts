@@ -8,7 +8,7 @@ import {
 } from '../migrate-snap-tests.ts';
 
 function ctx(): TranslationContext {
-  return { todos: [], notes: [], localRegistry: false };
+  return { todos: [], notes: [], localRegistry: false, needsFreshRuntime: false };
 }
 
 function argvs(steps: NewStep[]): string[][] {
@@ -92,6 +92,15 @@ describe('translateCommand', () => {
 
   it('TODOs ls flags that list-dir does not replicate', () => {
     expect(isTodo(translateCommand('ls -la node_modules', ctx()))).toBe(true);
+  });
+
+  it('flags runtime-provisioning commands for seed-runtime = false', () => {
+    const context = ctx();
+    translateCommand('vp env install 22', context);
+    expect(context.needsFreshRuntime).toBe(true);
+    const plain = ctx();
+    translateCommand('vp env list', plain);
+    expect(plain.needsFreshRuntime).toBe(false);
   });
 
   it('turns leading cd chains into step cwd', () => {

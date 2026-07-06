@@ -185,6 +185,8 @@ interface TranslationContext {
   todos: string[];
   notes: string[];
   localRegistry: boolean;
+  /** Set when a step provisions/removes managed runtimes (`vp env install`). */
+  needsFreshRuntime: boolean;
 }
 
 /** Records a hand-conversion TODO and returns the placeholder step for it. */
@@ -271,6 +273,15 @@ function translateSimple(command: string, ctx: TranslationContext): NewStep | nu
 
   let step: NewStep | null = null;
   if (PASSTHROUGH_PROGRAMS.has(program)) {
+    // Runtime-provisioning commands must start from an empty VP_HOME, so
+    // the case opts out of seed-runtime (emitted at the case level).
+    if (
+      program === 'vp' &&
+      args[0] === 'env' &&
+      /^(install|i|uninstall|uni)$/.test(args[1] ?? '')
+    ) {
+      ctx.needsFreshRuntime = true;
+    }
     step = { argv: tokens };
   } else if (program in COREUTILS_MAP || VPT_VERBATIM.has(program) || program === 'chmod') {
     if (hasGlob(args)) {
@@ -461,6 +472,7 @@ function migrateCase(
     todos: report.todos,
     notes: report.notes,
     localRegistry: false,
+    needsFreshRuntime: false,
   };
 
   const newName = fixtureName(caseName);
@@ -525,6 +537,12 @@ function migrateCase(
     for (const step of translateCommand(raw, ctx)) {
       stepLines.push(emitStep(step, extra));
     }
+  }
+  if (ctx.needsFreshRuntime) {
+    lines.push('seed-runtime = false');
+    report.notes.push(
+      'runtime-provisioning case: generated with `seed-runtime = false` so it starts from an empty VP_HOME',
+    );
   }
   if (old.localVitePlusPackages || ctx.localRegistry) {
     lines.push('local-registry = true');

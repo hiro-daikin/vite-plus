@@ -1,0 +1,14 @@
+[[case]]
+name = "line_boundary_on_failure"
+vp = "global"
+comment = """
+Locks in the failure-flow contract: a failing step skips the rest of its
+line (up to and including the next continue-on-failure step, the line
+terminator in migrated fixtures) and the following line resumes; without a
+boundary ahead, the case stops.
+"""
+steps = [
+  { argv = ["vpt", "exit", "1"], comment = "chain member fails: the rest of this line is skipped" },
+  { argv = ["vpt", "print", "same line, never runs"], continue-on-failure = true },
+  { argv = ["vpt", "print", "next line still runs"], continue-on-failure = true },
+]

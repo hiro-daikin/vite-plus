@@ -86,8 +86,10 @@ struct StepConfig {
     /// that specifically assert non-TTY behaviour. Interactions require a PTY.
     #[serde(default = "default_true")]
     tty: bool,
-    /// By default a failing step stops the case (shell-like `&&` semantics);
-    /// set true when later steps deliberately inspect post-failure state.
+    /// On failure, execution skips past the next step marked
+    /// `continue-on-failure = true` (the line boundary in migrated
+    /// fixtures) and resumes there; without one ahead, the case stops
+    /// (shell-like `&&`). A step marked true never interrupts the flow.
     #[serde(default, rename = "continue-on-failure")]
     continue_on_failure: bool,
 }
@@ -661,7 +663,9 @@ fn run_case(
     }
 
     let mut timeout_error: Option<String> = None;
-    for (step_index, step) in case.steps.iter().enumerate() {
+    let mut step_index = 0;
+    while step_index < case.steps.len() {
+        let step = &case.steps[step_index];
         let argv = step.argv();
         assert!(!argv.is_empty(), "step argv must not be empty");
 
@@ -840,14 +844,31 @@ fn run_case(
             doc.push_str(&redacted);
         }
 
-        // Shell-like `&&` semantics: a failing step stops the case unless it
-        // opts out, so later steps never bless output from a broken setup.
+        // Shell-like `&&` semantics with line boundaries: a failing step
+        // skips the rest of its line, up to and including the next
+        // continue-on-failure step (the line terminator in migrated
+        // fixtures), and the following line resumes, exactly the legacy
+        // model. Hand-written cases without markers stop here entirely.
         if !succeeded && !step.continue_on_failure() {
-            if step_index + 1 < case.steps.len() {
-                doc.push_str("\n*(remaining steps skipped: step failed)*\n");
+            match case.steps[step_index + 1..].iter().position(Step::continue_on_failure) {
+                Some(offset) => {
+                    let skipped = offset + 1;
+                    doc.push_str(&format!(
+                        "\n*(skipped {skipped} step(s) to the next line boundary: step failed)*\n"
+                    ));
+                    step_index += skipped + 1;
+                    continue;
+                }
+                None => {
+                    if step_index + 1 < case.steps.len() {
+                        doc.push_str("\n*(remaining steps skipped: step failed)*\n");
+                    }
+                    break;
+                }
             }
-            break;
         }
+
+        step_index += 1;
     }
 
     // Cleanup steps: best-effort, never snapshotted. Per-step envs apply

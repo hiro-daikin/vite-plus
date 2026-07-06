@@ -113,14 +113,21 @@ fn local_cli_bin_dir() -> Result<PathBuf, String> {
     // Skipped in CI, where dist is always freshly built, and under the
     // override, which points at another checkout on purpose.
     if overridden.is_none() && std::env::var_os("GITHUB_ACTIONS").is_none() {
-        let pkg_dir = bin_dir.parent().unwrap();
-        if let (Some(src), Some(dist)) =
-            (newest_mtime(&pkg_dir.join("src")), newest_mtime(&pkg_dir.join("dist")))
-            && src > dist
-        {
-            return Err("packages/cli/dist is older than packages/cli/src; run `pnpm build`, \
-                 or set VP_SNAP_SKIP_FLAVORS=local to skip local-flavor cases"
-                .to_owned());
+        // packages/core shares the freshness requirement: it is linked into
+        // the run-root node_modules and its exports load its dist.
+        let cli_pkg = bin_dir.parent().unwrap().to_path_buf();
+        let core_pkg = repo_root().join("packages/core");
+        for pkg in [cli_pkg, core_pkg] {
+            if let (Some(src), Some(dist)) =
+                (newest_mtime(&pkg.join("src")), newest_mtime(&pkg.join("dist")))
+                && src > dist
+            {
+                return Err(format!(
+                    "{} has a dist older than its src; run `pnpm build`, or set \
+                     VP_SNAP_SKIP_FLAVORS=local to skip local-flavor cases",
+                    pkg.display()
+                ));
+            }
         }
     }
     Ok(bin_dir)
